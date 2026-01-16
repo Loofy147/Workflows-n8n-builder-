@@ -1,0 +1,66 @@
+{
+  "id": "ouedkniss_lead_gen",
+  "name": "Ouedkniss Lead Generation",
+  "category": "marketing",
+  "description": "Scrapes leads from Ouedkniss based on keywords and sends them to your CRM",
+  "keywords": ["ouedkniss", "leads", "sales", "immobilier", "auto"],
+  "required_inputs": [
+    {
+      "name": "keywords",
+      "type": "list",
+      "label": "Keywords to search for",
+      "required": true
+    },
+    {
+      "name": "wilaya",
+      "type": "select",
+      "label": "Wilaya",
+      "options": ["16", "31", "06", "25"],
+      "required": true
+    }
+  ],
+  "optional_inputs": [
+    {
+      "name": "min_price",
+      "type": "number",
+      "label": "Minimum Price (DZD)",
+      "default": 0
+    }
+  ],
+  "n8n_json": {
+    "name": "Ouedkniss_Lead_Gen_{{user_id}}",
+    "nodes": [
+      {
+        "parameters": {},
+        "name": "Start",
+        "type": "n8n-nodes-base.start",
+        "typeVersion": 1,
+        "position": [250, 300]
+      },
+      {
+        "parameters": {
+          "url": "https://www.ouedkniss.com/s/{{keywords}}"
+        },
+        "name": "Scrape",
+        "type": "n8n-nodes-base.httpRequest",
+        "typeVersion": 1,
+        "position": [450, 300]
+      }
+    ],
+    "connections": {
+      "Start": {
+        "main": [
+          [
+            {
+              "node": "Scrape",
+              "type": "main",
+              "index": 0
+            }
+          ]
+        ]
+      }
+    }
+  },
+  "estimated_cost_dzd": 15.0,
+  "avg_execution_time_seconds": 30
+}

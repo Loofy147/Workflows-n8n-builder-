@@ -1,0 +1,9 @@
+version: '3.8'
+
+services:
+  # Production overrides would go here
+  # e.g. removing ports, using real SSL, etc.
+  backend:
+    environment:
+      - ENVIRONMENT=production
+      - DEBUG=false

@@ -1,0 +1,40 @@
+{
+  "id": "instagram_darja_support",
+  "name": "Instagram Darja Support",
+  "category": "customer_support",
+  "description": "Handles Instagram DMs in Darja using AI to answer common questions",
+  "keywords": ["instagram", "darja", "support", "customer"],
+  "required_inputs": [
+    {
+      "name": "instagram_account_id",
+      "type": "string",
+      "label": "Instagram Business Account ID",
+      "required": true
+    }
+  ],
+  "optional_inputs": [
+    {
+      "name": "tone",
+      "type": "select",
+      "label": "Response Tone",
+      "options": ["Friendly", "Professional"],
+      "default": "Friendly"
+    }
+  ],
+  "n8n_json": {
+    "name": "Instagram_Support_{{user_id}}",
+    "nodes": [
+      {
+        "parameters": {
+          "path": "ig-webhook"
+        },
+        "name": "Webhook",
+        "type": "n8n-nodes-base.webhook",
+        "typeVersion": 1,
+        "position": [250, 300]
+      }
+    ]
+  },
+  "estimated_cost_dzd": 5.0,
+  "avg_execution_time_seconds": 10
+}

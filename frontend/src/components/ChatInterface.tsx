@@ -2,7 +2,11 @@ import React, { useState } from 'react';
 import { Send, Bot, User, Loader2 } from 'lucide-react';
 import { chatService } from '../services/api';
 
-const ChatInterface: React.FC = () => {
+interface ChatInterfaceProps {
+  onWorkflowReady: (data: any) => void;
+}
+
+const ChatInterface: React.FC<ChatInterfaceProps> = ({ onWorkflowReady }) => {
   const [messages, setMessages] = useState<any[]>([]);
   const [input, setInput] = useState('');
   const [loading, setLoading] = useState(false);
@@ -18,6 +22,10 @@ const ChatInterface: React.FC = () => {
     try {
       const response = await chatService.sendMessage(input);
       setMessages(prev => [...prev, { role: 'assistant', content: response.message || response.content, type: response.type, data: response }]);
+
+      if (response.type === 'workflow_ready') {
+        onWorkflowReady(response);
+      }
     } catch (error) {
       console.error('Chat error:', error);
       setMessages(prev => [...prev, { role: 'assistant', content: 'Sorry, I encountered an error. Please try again.' }]);

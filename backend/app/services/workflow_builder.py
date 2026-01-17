@@ -10,6 +10,7 @@ import logging
 from copy import deepcopy
 
 from app.services.n8n_client import N8nClient
+from app.services.event_bus import event_bus
 from app.models.workflow import WorkflowTemplate, UserWorkflow
 from app.db.session import SessionLocal
 
@@ -30,7 +31,8 @@ class WorkflowBuilder:
         template: WorkflowTemplate,
         user_id: str,
         inputs: Dict[str, Any],
-        custom_name: Optional[str] = None
+        custom_name: Optional[str] = None,
+        db: Optional[SessionLocal] = None
     ) -> UserWorkflow:
         """
         Build workflow from template with user inputs
@@ -69,7 +71,11 @@ class WorkflowBuilder:
             webhook_url = self.n8n.build_webhook_url(user_id, n8n_workflow_id)
 
             # Save to database
-            db = SessionLocal()
+            should_close = False
+            if db is None:
+                db = SessionLocal()
+                should_close = True
+
             try:
                 user_workflow = UserWorkflow(
                     id=str(uuid.uuid4()),
@@ -88,10 +94,20 @@ class WorkflowBuilder:
                 db.refresh(user_workflow)
 
                 logger.info(f"Workflow created successfully: {user_workflow.id}")
+
+                # 2026 Event Integration
+                await event_bus.publish("workflow_created", {
+                    "workflow_id": user_workflow.id,
+                    "user_id": user_id,
+                    "template_id": str(template.id),
+                    "n8n_id": n8n_workflow_id
+                })
+
                 return user_workflow
 
             finally:
-                db.close()
+                if should_close:
+                    db.close()
 
         except Exception as e:
             logger.error(f"Workflow build failed: {str(e)}", exc_info=True)

@@ -173,6 +173,40 @@ services:
           cpus: '1'
           memory: 1G
 
+  # Event Worker (2026 Architectural Component)
+  event_worker:
+    build:
+      context: ..
+      dockerfile: backend/Dockerfile
+    container_name: ai_platform_worker
+    command: ["python", "-m", "app.workers.event_processor"]
+    environment:
+      - DATABASE_URL=postgresql://platform_user:${DB_PASSWORD}@postgres:5432/ai_platform
+      - REDIS_URL=redis://:${REDIS_PASSWORD}@redis:6379/0
+    depends_on:
+      redis:
+        condition: service_healthy
+    networks:
+      - platform_network
+
+  # Local Inference Gateway (2026 Privacy Foundation)
+  local_inference:
+    image: ghcr.io/mistralai/mistral-src/vllm:latest # Placeholder for 2026 local LLM
+    container_name: ai_platform_local_llm
+    environment:
+      - MODEL_ID=mistral-v3 # Placeholder
+    ports:
+      - "8001:8000"
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: all
+              capabilities: [gpu]
+    networks:
+      - platform_network
+
   # React Frontend
   frontend:
     build:

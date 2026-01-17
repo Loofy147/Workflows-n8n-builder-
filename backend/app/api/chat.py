@@ -1,4 +1,4 @@
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Security
 from sqlalchemy.orm import Session
 from app.services.ai_agent import AIWorkflowAgent
 from app.api.deps import get_current_user
@@ -16,7 +16,7 @@ class ChatRequest(BaseModel):
 @router.post("/")
 async def chat(
     request: ChatRequest,
-    current_user: User = Depends(get_current_user),
+    current_user: User = Security(get_current_user, scopes=["agent:chat"]),
     db: Session = Depends(get_db)
 ):
     agent = AIWorkflowAgent()

@@ -9,13 +9,13 @@ import os
 from unittest.mock import MagicMock, patch
 
 # Use SQLite for testing
-SQLALCHEMY_DATABASE_URL = "sqlite:///./test_wf.db"
+SQLALCHEMY_DATABASE_URL = "sqlite:///:memory:"
 engine = create_engine(SQLALCHEMY_DATABASE_URL, connect_args={"check_same_thread": False})
 TestingSessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
 
 def override_get_db():
+    db = TestingSessionLocal()
     try:
-        db = TestingSessionLocal()
         yield db
     finally:
         db.close()
@@ -24,24 +24,39 @@ app.dependency_overrides[get_db] = override_get_db
 
 client = TestClient(app)
 
-@pytest.fixture(scope="module", autouse=True)
+@pytest.fixture(scope="function", autouse=True)
 def setup_db():
     # Set templates path for tests
     os.environ["TEMPLATES_DIR"] = "../templates"
-    Base.metadata.create_all(bind=engine)
-    yield
-    Base.metadata.drop_all(bind=engine)
-    if os.path.exists("./test_wf.db"):
-        os.remove("./test_wf.db")
 
-def get_token():
+    # For in-memory sqlite, we must use a single connection to keep the data alive
+    connection = engine.connect()
+    transaction = connection.begin()
+    Base.metadata.create_all(bind=connection)
+
+    # Update session to use this connection
+    old_bind = TestingSessionLocal.kw['bind']
+    TestingSessionLocal.configure(bind=connection)
+
+    yield
+
+    transaction.rollback()
+    connection.close()
+    TestingSessionLocal.configure(bind=old_bind)
+
+def get_token(scopes=None):
     client.post(
         "/api/auth/register",
-        json={"email": "wf@example.com", "password": "wfpassword"}
+        json={"email": f"wf_{scopes}@example.com", "password": "wfpassword"}
     )
+
+    # Mocking create_access_token to include scopes in login if we want
+    # But simpler is to update auth_utils default or handle it in login.
+    # For tests, we'll just mock the dependency get_current_user or update the token logic.
+
     response = client.post(
         "/api/auth/login",
-        data={"username": "wf@example.com", "password": "wfpassword"}
+        data={"username": f"wf_{scopes}@example.com", "password": "wfpassword"}
     )
     return response.json()["access_token"]
 

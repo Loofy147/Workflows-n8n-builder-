@@ -7,13 +7,13 @@ from sqlalchemy.orm import sessionmaker
 import pytest
 
 # Use SQLite for testing
-SQLALCHEMY_DATABASE_URL = "sqlite:///./test.db"
+SQLALCHEMY_DATABASE_URL = "sqlite:///:memory:"
 engine = create_engine(SQLALCHEMY_DATABASE_URL, connect_args={"check_same_thread": False})
 TestingSessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
 
 def override_get_db():
+    db = TestingSessionLocal()
     try:
-        db = TestingSessionLocal()
         yield db
     finally:
         db.close()
@@ -22,11 +22,24 @@ app.dependency_overrides[get_db] = override_get_db
 
 client = TestClient(app)
 
-@pytest.fixture(scope="module", autouse=True)
+@pytest.fixture(scope="function", autouse=True)
 def setup_db():
-    Base.metadata.create_all(bind=engine)
+    # For in-memory sqlite, we must use a single connection to keep the data alive
+    connection = engine.connect()
+    transaction = connection.begin()
+    Base.metadata.create_all(bind=connection)
+
+    # Update session to use this connection
+    old_bind = TestingSessionLocal.kw['bind']
+    TestingSessionLocal.configure(bind=connection)
+
     yield
-    Base.metadata.drop_all(bind=engine)
+
+    transaction.rollback()
+    connection.close()
+    TestingSessionLocal.configure(bind=old_bind)
+
+import os
 
 def test_register_and_login():
     # Register

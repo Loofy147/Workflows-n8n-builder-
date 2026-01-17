@@ -10,6 +10,7 @@ import logging
 from copy import deepcopy
 
 from app.services.n8n_client import N8nClient
+from app.services.event_bus import event_bus
 from app.models.workflow import WorkflowTemplate, UserWorkflow
 from app.db.session import SessionLocal
 
@@ -93,6 +94,15 @@ class WorkflowBuilder:
                 db.refresh(user_workflow)
 
                 logger.info(f"Workflow created successfully: {user_workflow.id}")
+
+                # 2026 Event Integration
+                await event_bus.publish("workflow_created", {
+                    "workflow_id": user_workflow.id,
+                    "user_id": user_id,
+                    "template_id": str(template.id),
+                    "n8n_id": n8n_workflow_id
+                })
+
                 return user_workflow
 
             finally:

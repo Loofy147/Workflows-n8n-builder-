@@ -8,6 +8,7 @@ from typing import Dict, List, Optional, Any
 import logging
 from datetime import datetime
 from app.config import settings
+from app.services.event_bus import event_bus
 
 logger = logging.getLogger(__name__)
 
@@ -264,8 +265,14 @@ class N8nClient:
 
     async def trigger_workflow(self, workflow_id: str, data: Dict) -> Dict:
         """
-        Manually trigger workflow execution
+        Manually trigger workflow execution.
+        2026: Publishes an event before triggering.
         """
+        await event_bus.publish("workflow_trigger_requested", {
+            "workflow_id": workflow_id,
+            "data": data
+        })
+
         logger.info(f"Triggering workflow: {workflow_id}")
 
         try:

@@ -1,4 +1,4 @@
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Security
 from app.services.template_matcher import TemplateMatcher
 from app.api.deps import get_current_user
 from app.models.user import User
@@ -10,14 +10,14 @@ from typing import Dict, Any, Optional
 router = APIRouter()
 
 @router.get("/templates")
-async def get_templates(current_user: User = Depends(get_current_user)):
+async def get_templates(current_user: User = Security(get_current_user, scopes=["workflow:read"])):
     matcher = TemplateMatcher()
     return matcher.get_all_templates()
 
 @router.get("/{workflow_id}")
 async def get_workflow(
     workflow_id: str,
-    current_user: User = Depends(get_current_user)
+    current_user: User = Security(get_current_user, scopes=["workflow:read"])
 ):
     # Implementation here
     return {"id": workflow_id}
@@ -29,7 +29,7 @@ class WorkflowActivationRequest(BaseModel):
 @router.post("/activate")
 async def activate_workflow(
     request: WorkflowActivationRequest,
-    current_user: User = Depends(get_current_user),
+    current_user: User = Security(get_current_user, scopes=["workflow:write"]),
     db: Session = Depends(get_db)
 ):
     from app.services.workflow_builder import WorkflowBuilder

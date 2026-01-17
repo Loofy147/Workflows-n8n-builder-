@@ -19,14 +19,15 @@ logger = logging.getLogger(__name__)
 
 class AIWorkflowAgent:
     """
-    Main AI agent that interprets user requests and builds workflows
-    Uses Claude Sonnet 4 for complex reasoning, with fallback to cheaper models
+    Main AI agent that interprets user requests and builds workflows.
+    Enhanced for 2026 with role-based personas, tool tracing, and MAS compatibility.
     """
 
-    def __init__(self):
+    def __init__(self, role: str = "general"):
         self.client = AsyncAnthropic(api_key=settings.ANTHROPIC_API_KEY)
         self.template_matcher = TemplateMatcher()
         self.cost_estimator = CostEstimator()
+        self.role = role
         self.conversation_memory = {}  # In-memory cache, replace with Redis in prod
 
     async def process_message(
@@ -34,7 +35,8 @@ class AIWorkflowAgent:
         user_id: str,
         message: str,
         conversation_id: Optional[str] = None,
-        db: Optional[Any] = None
+        db: Optional[Any] = None,
+        orchestrator_state: Optional[Any] = None
     ) -> Dict[str, Any]:
         """
         Main entry point for processing user messages
@@ -43,6 +45,10 @@ class AIWorkflowAgent:
             dict: Response containing message, workflow data, or clarification questions
         """
         try:
+            # 2026 Tracing
+            if orchestrator_state:
+                orchestrator_state.trace.append(f"Agent {self.role} started processing.")
+
             # Get conversation history
             history = self._get_conversation_history(conversation_id, db=db) if conversation_id else []
 
@@ -63,6 +69,9 @@ class AIWorkflowAgent:
                 messages=messages,
                 temperature=0.3  # Lower temperature for more consistent outputs
             )
+
+            if orchestrator_state:
+                orchestrator_state.trace.append(f"Agent {self.role} received response from LLM.")
 
             # Parse response
             agent_response = self._parse_agent_response(response.content[0].text)
@@ -101,13 +110,25 @@ class AIWorkflowAgent:
             }
 
     def _build_system_prompt(self, user_context: Dict) -> str:
-        """Build comprehensive system prompt with user context and templates"""
+        """Build comprehensive system prompt with user context, templates, and role-based personas"""
 
         # Load available templates
         templates = self.template_matcher.get_all_templates()
+        # Filter templates based on role if necessary
         templates_json = json.dumps([t.to_dict() for t in templates], ensure_ascii=False)
 
-        prompt = f"""You are an AI Workflow Builder Agent for an automation platform serving Algerian businesses.
+        role_personas = {
+            "sales": "You are a Sales Automation Expert focused on lead generation and CRM integration in Algeria (Ouedkniss, social media).",
+            "logistics": "You are a Logistics Specialist focused on delivery automation and order tracking (Yalidine, local transport).",
+            "finance": "You are a Fintech Advisor focused on payment tracking and invoice automation (Baridimob, CCP, CCP payment verification).",
+            "general": "You are a General Automation Architect for Algerian businesses."
+        }
+
+        persona = role_personas.get(self.role, role_personas["general"])
+
+        prompt = f"""{persona}
+
+You are an AI Workflow Builder Agent for an automation platform serving Algerian businesses.
 
 USER CONTEXT:
 - User ID: {user_context['user_id']}

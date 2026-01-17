@@ -1,0 +1,40 @@
+{
+  "id": "payment_notifications",
+  "name": "Payment Notifications",
+  "category": "finance",
+  "description": "Monitors payments and sends instant notifications to your team",
+  "keywords": ["payment", "tracking", "notification", "baridimob", "ccp"],
+  "required_inputs": [
+    {
+      "name": "notification_channel",
+      "type": "select",
+      "label": "Notification Channel",
+      "options": ["Slack", "Telegram", "WhatsApp"],
+      "required": true
+    }
+  ],
+  "optional_inputs": [
+    {
+      "name": "min_amount",
+      "type": "number",
+      "label": "Minimum Amount to Notify (DZD)",
+      "default": 100
+    }
+  ],
+  "n8n_json": {
+    "name": "Payment_Notifications_{{user_id}}",
+    "nodes": [
+      {
+        "parameters": {
+          "path": "payment-webhook"
+        },
+        "name": "Webhook",
+        "type": "n8n-nodes-base.webhook",
+        "typeVersion": 1,
+        "position": [250, 300]
+      }
+    ]
+  },
+  "estimated_cost_dzd": 8.0,
+  "avg_execution_time_seconds": 15
+}

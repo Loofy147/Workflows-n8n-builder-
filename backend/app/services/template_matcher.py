@@ -11,8 +11,8 @@ class TemplateMatcher:
     Manages workflow templates and matches user intent to templates
     """
 
-    def __init__(self, templates_dir: str = "templates"):
-        self.templates_dir = templates_dir
+    def __init__(self, templates_dir: Optional[str] = None):
+        self.templates_dir = templates_dir or os.getenv("TEMPLATES_DIR", "templates")
         self.templates: Dict[str, WorkflowTemplate] = {}
         self._load_templates_from_disk()
 

@@ -1,0 +1,45 @@
+{
+  "id": "delivery_automation",
+  "name": "Delivery Automation",
+  "category": "logistics",
+  "description": "Automatically syncs orders with delivery services and tracks shipments",
+  "keywords": ["delivery", "shipping", "tracking", "logistics", "yalidine"],
+  "required_inputs": [
+    {
+      "name": "api_key",
+      "type": "string",
+      "label": "Delivery Service API Key",
+      "required": true
+    },
+    {
+      "name": "service_url",
+      "type": "string",
+      "label": "API Endpoint URL",
+      "default": "https://api.yalidine.app/v1"
+    }
+  ],
+  "optional_inputs": [
+    {
+      "name": "notification_email",
+      "type": "string",
+      "label": "Notification Email",
+      "required": false
+    }
+  ],
+  "n8n_json": {
+    "name": "Delivery_Automation_{{user_id}}",
+    "nodes": [
+      {
+        "parameters": {
+          "path": "order-sync"
+        },
+        "name": "Webhook",
+        "type": "n8n-nodes-base.webhook",
+        "typeVersion": 1,
+        "position": [250, 300]
+      }
+    ]
+  },
+  "estimated_cost_dzd": 12.0,
+  "avg_execution_time_seconds": 20
+}

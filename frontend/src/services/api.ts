@@ -22,6 +22,13 @@ export const workflowService = {
     const response = await api.get('/workflows/templates');
     return response.data;
   },
+  activateWorkflow: async (templateId: string, inputs: any) => {
+    const response = await api.post('/workflows/activate', {
+      template_id: templateId,
+      inputs: inputs,
+    });
+    return response.data;
+  },
 };
 
 export default api;

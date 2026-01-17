@@ -33,7 +33,8 @@ class AIWorkflowAgent:
         self,
         user_id: str,
         message: str,
-        conversation_id: Optional[str] = None
+        conversation_id: Optional[str] = None,
+        db: Optional[Any] = None
     ) -> Dict[str, Any]:
         """
         Main entry point for processing user messages
@@ -43,10 +44,10 @@ class AIWorkflowAgent:
         """
         try:
             # Get conversation history
-            history = self._get_conversation_history(conversation_id) if conversation_id else []
+            history = self._get_conversation_history(conversation_id, db=db) if conversation_id else []
 
             # Get user context
-            user_context = await self._get_user_context(user_id)
+            user_context = await self._get_user_context(user_id, db=db)
 
             # Build system prompt with templates and context
             system_prompt = self._build_system_prompt(user_context)
@@ -318,12 +319,16 @@ IMPORTANT:
 
         return form
 
-    async def _get_user_context(self, user_id: str) -> Dict:
+    async def _get_user_context(self, user_id: str, db: Optional[Any] = None) -> Dict:
         """Fetch user context from database"""
         from app.db.session import SessionLocal
         from app.models.user import User
 
-        db = SessionLocal()
+        should_close = False
+        if db is None:
+            db = SessionLocal()
+            should_close = True
+
         try:
             user = db.query(User).filter(User.id == user_id).first()
             if not user:
@@ -337,9 +342,10 @@ IMPORTANT:
                 "language": user.language_preference or "fr"
             }
         finally:
-            db.close()
+            if should_close:
+                db.close()
 
-    def _get_conversation_history(self, conversation_id: str) -> List[Dict]:
+    def _get_conversation_history(self, conversation_id: str, db: Optional[Any] = None) -> List[Dict]:
         """Get conversation history from cache or database"""
         # Check memory cache first
         if conversation_id in self.conversation_memory:
@@ -349,7 +355,11 @@ IMPORTANT:
         from app.db.session import SessionLocal
         from app.models.workflow import ChatConversation
 
-        db = SessionLocal()
+        should_close = False
+        if db is None:
+            db = SessionLocal()
+            should_close = True
+
         try:
             conv = db.query(ChatConversation).filter(
                 ChatConversation.id == conversation_id
@@ -360,7 +370,8 @@ IMPORTANT:
 
             return []
         finally:
-            db.close()
+            if should_close:
+                db.close()
 
     def _save_conversation(self, conversation_id: str, user_message: str, agent_response: Dict):
         """Save conversation turn to memory and database"""

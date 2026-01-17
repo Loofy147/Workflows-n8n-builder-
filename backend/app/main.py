@@ -33,13 +33,19 @@ async def lifespan(app: FastAPI):
     logger.info("🚀 Starting AI Workflow Platform...")
 
     # Create database tables
-    Base.metadata.create_all(bind=engine)
-    logger.info("✅ Database tables created")
+    try:
+        Base.metadata.create_all(bind=engine)
+        logger.info("✅ Database tables created")
+    except Exception as e:
+        logger.warning(f"⚠️ Could not create tables on startup: {e}")
 
     # Initialize Redis connection
-    from app.services.cache import init_redis
-    await init_redis()
-    logger.info("✅ Redis connected")
+    try:
+        from app.services.cache import init_redis
+        await init_redis()
+        logger.info("✅ Redis connected")
+    except Exception as e:
+        logger.warning(f"⚠️ Redis connection failed: {e}")
 
     # Load workflow templates
     from app.services.template_matcher import load_templates
@@ -47,12 +53,15 @@ async def lifespan(app: FastAPI):
     logger.info(f"✅ Loaded {len(templates)} workflow templates")
 
     # Verify n8n connectivity
-    from app.services.n8n_client import N8nClient
-    n8n = N8nClient()
-    if await n8n.health_check():
-        logger.info("✅ n8n instance connected")
-    else:
-        logger.error("❌ n8n instance not reachable")
+    try:
+        from app.services.n8n_client import N8nClient
+        n8n = N8nClient()
+        if await n8n.health_check():
+            logger.info("✅ n8n instance connected")
+        else:
+            logger.error("❌ n8n instance not reachable")
+    except Exception as e:
+        logger.warning(f"⚠️ n8n health check failed: {e}")
 
     yield
 

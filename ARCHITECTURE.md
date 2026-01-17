@@ -1,33 +1,48 @@
-# Architecture: AI Workflow Platform
+# Architecture: AI Workflow Platform (2026 Edition)
 
-## Overview
-The AI Workflow Platform is designed to help Algerian businesses automate their operations using AI-driven workflows. It leverages FastAPI for a high-performance backend, React for a modern frontend, and n8n as a powerful workflow execution engine.
+## 🏗 System Architecture
 
-## Components
+The platform follows a modular, agentic-first design to ensure long-term adaptability.
 
-### 1. Backend (FastAPI)
-- **AI Agent**: Interprets user requests in Darja, French, or English.
-- **Workflow Builder**: Generates n8n workflow JSON from templates.
-- **API Layer**: Provides RESTful endpoints for chat, workflows, and monitoring.
-- **Cost Estimator**: Tracks and estimates business costs in DZD.
+### 1. High-Level Component Flow
 
-### 2. Workflow Engine (n8n)
-- Executes the actual automation logic.
-- Managed by the backend via its API.
+```mermaid
+graph TD
+    User((User)) -->|HTTPS| Frontend[React Web App]
+    Frontend -->|API/WS| API[FastAPI Gateway]
+    API -->|Route| Orchestrator[Agent Orchestrator]
 
-### 3. Frontend (React)
-- **Chat Interface**: Natural language interaction with the AI Agent.
-- **Dashboard**: Monitor workflow executions and costs.
+    subgraph "Agentic Layer"
+        Orchestrator -->|Delegate| SalesAgent[Sales Expert]
+        Orchestrator -->|Delegate| LogisticsAgent[Logistics Specialist]
+        Orchestrator -->|Delegate| FinanceAgent[Finance Advisor]
+    end
 
-### 4. Infrastructure
-- **Docker**: Containerized deployment.
-- **PostgreSQL**: Primary database.
-- **Redis**: Caching and task queueing.
+    Orchestrator -->|Bus| EventBus{Redis Event Bus}
+    EventBus -->|Consume| Worker[Event Processor Worker]
+    Worker -->|Execute| n8n[n8n Workflow Engine]
 
-## Data Flow
-1. User describes a need in the Chat Interface.
-2. AI Agent processes the request, matches it to a template, and asks for parameters.
-3. User provides parameters.
-4. Workflow Builder creates the workflow in n8n.
-5. n8n executes the workflow and reports back.
-6. Costs are tracked and displayed to the user.
+    subgraph "Inference Layer"
+        LLMGateway[LLM Strategy Gateway]
+        LLMGateway -->|Cloud| Anthropic[Anthropic API]
+        LLMGateway -->|Local| vLLM[Local inference Sidecar]
+    end
+
+    API -.->|Request| LLMGateway
+```
+
+### 2. Multi-Agent System (MAS)
+The `AgentOrchestrator` implements a routing-and-delegation pattern. It analyzes user intent and maintains a stateful `AgentState` object that stores findings from different specialized agents throughout the conversation.
+
+### 3. Event-Driven Scalability
+By utilizing Redis Streams, the platform decouples heavy workflow creation and execution from the synchronous user interface. This ensures that the system remains responsive even during high-load peaks.
+
+### 4. Security & Privacy foundation
+- **Hybrid Cryptography**: Implements AES-GCM for current standards with structural hooks for Post-Quantum KEM (Key Encapsulation Mechanisms).
+- **Privacy-Safe Inference**: Sensitive Algerian business data (e.g. CCP numbers, internal invoices) can be routed to the local inference container instead of external APIs.
+
+### 5. Governance & Auditability
+Every generated workflow is accompanied by an **SBOM (Software Bill of Materials)**. This JSON document traces:
+- Model versions used (e.g. `claude-3-5-sonnet-20240620`).
+- Prompt templates and roles.
+- Component dependencies within the n8n engine.

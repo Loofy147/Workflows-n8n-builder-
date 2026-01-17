@@ -11,6 +11,7 @@ from datetime import datetime
 from app.config import settings
 from app.services.template_matcher import TemplateMatcher
 from app.services.cost_estimator import CostEstimator
+from app.services.cache import redis_client
 from app.utils.algeria_utils import normalize_darja, validate_wilaya
 from app.metrics import AI_TOKEN_USAGE
 
@@ -28,7 +29,6 @@ class AIWorkflowAgent:
         self.template_matcher = TemplateMatcher()
         self.cost_estimator = CostEstimator()
         self.role = role
-        self.conversation_memory = {}  # In-memory cache, replace with Redis in prod
 
     async def process_message(
         self,
@@ -81,7 +81,7 @@ class AIWorkflowAgent:
 
             # Save conversation
             if conversation_id:
-                self._save_conversation(conversation_id, message, agent_response)
+                await self._save_conversation(conversation_id, message, agent_response)
 
             # Handle different response types
             if agent_response['type'] == 'clarification':
@@ -366,11 +366,16 @@ IMPORTANT:
             if should_close:
                 db.close()
 
-    def _get_conversation_history(self, conversation_id: str, db: Optional[Any] = None) -> List[Dict]:
-        """Get conversation history from cache or database"""
-        # Check memory cache first
-        if conversation_id in self.conversation_memory:
-            return self.conversation_memory[conversation_id]
+    async def _get_conversation_history(self, conversation_id: str, db: Optional[Any] = None) -> List[Dict]:
+        """Get conversation history from Redis or database"""
+        # Check Redis cache first (2026 Distributed State)
+        if redis_client:
+            try:
+                cached = await redis_client.get(f"conv:{conversation_id}")
+                if cached:
+                    return json.loads(cached)
+            except Exception as e:
+                logger.warning(f"Redis memory retrieval failed: {e}")
 
         # Fallback to database
         from app.db.session import SessionLocal
@@ -394,16 +399,25 @@ IMPORTANT:
             if should_close:
                 db.close()
 
-    def _save_conversation(self, conversation_id: str, user_message: str, agent_response: Dict):
-        """Save conversation turn to memory and database"""
-        # Update memory cache
-        if conversation_id not in self.conversation_memory:
-            self.conversation_memory[conversation_id] = []
+    async def _save_conversation(self, conversation_id: str, user_message: str, agent_response: Dict):
+        """Save conversation turn to Redis memory and database"""
+        history = await self._get_conversation_history(conversation_id)
 
-        self.conversation_memory[conversation_id].extend([
+        history.extend([
             {"role": "user", "content": user_message},
             {"role": "assistant", "content": json.dumps(agent_response, ensure_ascii=False)}
         ])
+
+        # Update Redis cache (TTL 24h)
+        if redis_client:
+            try:
+                await redis_client.setex(
+                    f"conv:{conversation_id}",
+                    86400,
+                    json.dumps(history)
+                )
+            except Exception as e:
+                logger.warning(f"Redis memory save failed: {e}")
 
         # Async save to database (don't wait)
         # In production, use background task or message queue
@@ -412,13 +426,11 @@ IMPORTANT:
         """Track AI token usage for cost monitoring"""
         logger.info(f"Token usage for user {user_id}: {usage.input_tokens} in, {usage.output_tokens} out")
 
-        # Calculate cost
-        input_cost = (usage.input_tokens / 1_000_000) * 3.0  # $3 per 1M tokens
-        output_cost = (usage.output_tokens / 1_000_000) * 15.0  # $15 per 1M tokens
-        total_cost_usd = input_cost + output_cost
-
-        # Convert to DZD (approx 135 DZD = 1 USD)
-        total_cost_dzd = total_cost_usd * 135
+        # Calculate cost using service
+        total_cost_dzd = self.cost_estimator.estimate_ai_cost(
+            input_tokens=usage.input_tokens,
+            output_tokens=usage.output_tokens
+        )
 
         logger.info(f"Estimated cost: {total_cost_dzd:.4f} DZD")
 

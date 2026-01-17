@@ -7,37 +7,31 @@ from sqlalchemy.orm import sessionmaker
 import pytest
 
 # Use SQLite for testing
-SQLALCHEMY_DATABASE_URL = "sqlite:///:memory:"
+SQLALCHEMY_DATABASE_URL = "sqlite://"
 engine = create_engine(SQLALCHEMY_DATABASE_URL, connect_args={"check_same_thread": False})
 TestingSessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
 
-def override_get_db():
-    db = TestingSessionLocal()
-    try:
-        yield db
-    finally:
-        db.close()
-
-app.dependency_overrides[get_db] = override_get_db
-
-client = TestClient(app)
-
-@pytest.fixture(scope="function", autouse=True)
-def setup_db():
-    # For in-memory sqlite, we must use a single connection to keep the data alive
+@pytest.fixture(scope="function")
+def db_session():
+    Base.metadata.create_all(bind=engine)
     connection = engine.connect()
     transaction = connection.begin()
-    Base.metadata.create_all(bind=connection)
-
-    # Update session to use this connection
-    old_bind = TestingSessionLocal.kw['bind']
-    TestingSessionLocal.configure(bind=connection)
-
-    yield
-
+    session = TestingSessionLocal(bind=connection)
+    yield session
+    session.close()
     transaction.rollback()
     connection.close()
-    TestingSessionLocal.configure(bind=old_bind)
+    Base.metadata.drop_all(bind=engine)
+
+@pytest.fixture(scope="function", autouse=True)
+def override_db(db_session):
+    def get_db_override():
+        yield db_session
+    app.dependency_overrides[get_db] = get_db_override
+    yield
+    app.dependency_overrides.clear()
+
+client = TestClient(app)
 
 import os
 

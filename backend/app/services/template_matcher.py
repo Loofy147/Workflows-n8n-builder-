@@ -6,15 +6,24 @@ from app.models.workflow import WorkflowTemplate
 
 logger = logging.getLogger(__name__)
 
+from sqlalchemy.orm import Session
+
 class TemplateMatcher:
     """
     Manages workflow templates and matches user intent to templates
     """
 
-    def __init__(self, templates_dir: Optional[str] = None):
+    def __init__(self, templates_dir: Optional[str] = None, db: Optional[Session] = None):
         self.templates_dir = templates_dir or os.getenv("TEMPLATES_DIR", "templates")
         self.templates: Dict[str, WorkflowTemplate] = {}
         self._load_templates_from_disk()
+        if db:
+            self._load_templates_from_db(db)
+
+    def _load_templates_from_db(self, db: Session):
+        db_templates = db.query(WorkflowTemplate).all()
+        for template in db_templates:
+            self.templates[template.id] = template
 
     def _load_templates_from_disk(self):
         if not os.path.exists(self.templates_dir):

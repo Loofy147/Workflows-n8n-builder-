@@ -1,0 +1,301 @@
+{
+  "id": "ouedkniss_real_estate",
+  "name": "Ouedkniss Real Estate Lead Monitor",
+  "category": "marketing",
+  "description": "Advanced real estate lead scraper that monitors Ouedkniss hourly, filters by price/location/property type, and delivers qualified leads via email/Slack with property images and seller contact info",
+  "keywords": ["ouedkniss", "immobilier", "real estate", "appartement", "maison", "villa", "f3", "f4", "location", "vente"],
+  "required_inputs": [
+    {
+      "name": "property_type",
+      "type": "select",
+      "label": "Type de bien",
+      "options": [
+        {"value": "appartement", "label": "Appartement"},
+        {"value": "maison", "label": "Maison"},
+        {"value": "villa", "label": "Villa"},
+        {"value": "terrain", "label": "Terrain"},
+        {"value": "local", "label": "Local commercial"}
+      ],
+      "required": true
+    },
+    {
+      "name": "transaction_type",
+      "type": "select",
+      "label": "Type de transaction",
+      "options": [
+        {"value": "vente", "label": "Vente"},
+        {"value": "location", "label": "Location"}
+      ],
+      "required": true
+    },
+    {
+      "name": "wilaya",
+      "type": "select",
+      "label": "Wilaya",
+      "options": [
+        {"value": "16", "label": "16 - Alger"},
+        {"value": "31", "label": "31 - Oran"},
+        {"value": "06", "label": "06 - Béjaïa"},
+        {"value": "15", "label": "15 - Tizi Ouzou"},
+        {"value": "09", "label": "09 - Blida"},
+        {"value": "25", "label": "25 - Constantine"},
+        {"value": "13", "label": "13 - Tlemcen"},
+        {"value": "19", "label": "19 - Sétif"},
+        {"value": "23", "label": "23 - Annaba"}
+      ],
+      "required": true
+    }
+  ],
+  "optional_inputs": [
+    {
+      "name": "min_price",
+      "type": "number",
+      "label": "Prix minimum (DZD)",
+      "default": 0,
+      "min": 0
+    },
+    {
+      "name": "max_price",
+      "type": "number",
+      "label": "Prix maximum (DZD)",
+      "default": 100000000,
+      "min": 0
+    },
+    {
+      "name": "min_surface",
+      "type": "number",
+      "label": "Surface minimale (m²)",
+      "default": 0,
+      "min": 0
+    },
+    {
+      "name": "notification_email",
+      "type": "string",
+      "label": "Email de notification",
+      "required": false
+    },
+    {
+      "name": "slack_webhook",
+      "type": "string",
+      "label": "Slack Webhook URL",
+      "required": false
+    },
+    {
+      "name": "check_interval",
+      "type": "select",
+      "label": "Fréquence de vérification",
+      "options": [
+        {"value": "15", "label": "Toutes les 15 minutes"},
+        {"value": "30", "label": "Toutes les 30 minutes"},
+        {"value": "60", "label": "Toutes les heures"},
+        {"value": "360", "label": "Toutes les 6 heures"}
+      ],
+      "default": "60"
+    }
+  ],
+  "n8n_json": {
+    "name": "Ouedkniss_Real_Estate_{{user_id}}",
+    "nodes": [
+      {
+        "parameters": {
+          "rule": {
+            "interval": [
+              {
+                "field": "minutes",
+                "minutesInterval": "{{check_interval}}"
+              }
+            ]
+          }
+        },
+        "name": "Schedule Trigger",
+        "type": "n8n-nodes-base.scheduleTrigger",
+        "typeVersion": 1,
+        "position": [250, 300],
+        "id": "schedule-node"
+      },
+      {
+        "parameters": {
+          "url": "https://www.ouedkniss.com/immobilier/{{property_type}}-{{transaction_type}}/wilaya-{{wilaya}}",
+          "options": {
+            "timeout": 30000
+          }
+        },
+        "name": "Scrape Ouedkniss",
+        "type": "n8n-nodes-base.httpRequest",
+        "typeVersion": 3,
+        "position": [450, 300],
+        "id": "scrape-node"
+      },
+      {
+        "parameters": {
+          "functionCode": "const htmlContent = items[0].json.body;\nconst leads = [];\n\n// Parse HTML and extract listings\nconst listingRegex = /<div class=\"listing-card\"[^>]*>([\\s\\S]*?)<\\/div>/g;\nconst matches = [...htmlContent.matchAll(listingRegex)];\n\nfor (const match of matches) {\n  const listing = match[1];\n  \n  // Extract details\n  const titleMatch = listing.match(/<h3[^>]*>([^<]+)<\\/h3>/);\n  const priceMatch = listing.match(/([0-9,]+)\\s*DA/);\n  const surfaceMatch = listing.match(/([0-9]+)\\s*m²/);\n  const locationMatch = listing.match(/<span class=\"location\">([^<]+)<\\/span>/);\n  const phoneMatch = listing.match(/0[5-7][0-9]{8}/);\n  const urlMatch = listing.match(/href=\"([^\"]+)\"/);\n  \n  const price = priceMatch ? parseInt(priceMatch[1].replace(/,/g, '')) : 0;\n  const surface = surfaceMatch ? parseInt(surfaceMatch[1]) : 0;\n  \n  // Apply filters\n  const minPrice = {{min_price}} || 0;\n  const maxPrice = {{max_price}} || 999999999;\n  const minSurface = {{min_surface}} || 0;\n  \n  if (price >= minPrice && price <= maxPrice && surface >= minSurface) {\n    leads.push({\n      title: titleMatch ? titleMatch[1].trim() : 'N/A',\n      price: price,\n      surface: surface,\n      location: locationMatch ? locationMatch[1].trim() : 'N/A',\n      phone: phoneMatch ? phoneMatch[0] : 'Not listed',\n      url: urlMatch ? 'https://www.ouedkniss.com' + urlMatch[1] : '#',\n      scraped_at: new Date().toISOString(),\n      price_per_sqm: surface > 0 ? Math.round(price / surface) : 0\n    });\n  }\n}\n\nreturn leads.map(lead => ({ json: lead }));"
+        },
+        "name": "Parse & Filter Listings",
+        "type": "n8n-nodes-base.code",
+        "typeVersion": 2,
+        "position": [650, 300],
+        "id": "parse-node"
+      },
+      {
+        "parameters": {
+          "conditions": {
+            "number": [
+              {
+                "value1": "={{$json.price}}",
+                "operation": "larger",
+                "value2": 0
+              }
+            ]
+          }
+        },
+        "name": "Has New Leads",
+        "type": "n8n-nodes-base.if",
+        "typeVersion": 1,
+        "position": [850, 300],
+        "id": "filter-node"
+      },
+      {
+        "parameters": {
+          "fromEmail": "noreply@ai-platform.dz",
+          "toEmail": "={{notification_email}}",
+          "subject": "🏠 Nouveaux biens immobiliers disponibles - Wilaya {{wilaya}}",
+          "emailFormat": "html",
+          "text": "=<h2>{{$json.title}}</h2>\n<p><strong>Prix:</strong> {{$json.price.toLocaleString()}} DA ({{$json.price_per_sqm}} DA/m²)</p>\n<p><strong>Surface:</strong> {{$json.surface}} m²</p>\n<p><strong>Localisation:</strong> {{$json.location}}</p>\n<p><strong>Contact:</strong> {{$json.phone}}</p>\n<p><a href=\"{{$json.url}}\">Voir l'annonce complète</a></p>\n<hr>"
+        },
+        "name": "Send Email Notification",
+        "type": "n8n-nodes-base.emailSend",
+        "typeVersion": 2,
+        "position": [1050, 250],
+        "id": "email-node"
+      },
+      {
+        "parameters": {
+          "url": "={{slack_webhook}}",
+          "options": {},
+          "bodyParametersJson": "={\n  \"blocks\": [\n    {\n      \"type\": \"header\",\n      \"text\": {\n        \"type\": \"plain_text\",\n        \"text\": \"🏠 Nouveau bien immobilier\"\n      }\n    },\n    {\n      \"type\": \"section\",\n      \"fields\": [\n        {\n          \"type\": \"mrkdwn\",\n          \"text\": \"*Titre:*\\n{{$json.title}}\"\n        },\n        {\n          \"type\": \"mrkdwn\",\n          \"text\": \"*Prix:*\\n{{$json.price.toLocaleString()}} DA\"\n        },\n        {\n          \"type\": \"mrkdwn\",\n          \"text\": \"*Surface:*\\n{{$json.surface}} m²\"\n        },\n        {\n          \"type\": \"mrkdwn\",\n          \"text\": \"*Localisation:*\\n{{$json.location}}\"\n        },\n        {\n          \"type\": \"mrkdwn\",\n          \"text\": \"*Contact:*\\n{{$json.phone}}\"\n        },\n        {\n          \"type\": \"mrkdwn\",\n          \"text\": \"*Prix/m²:*\\n{{$json.price_per_sqm}} DA\"\n        }\n      ]\n    },\n    {\n      \"type\": \"actions\",\n      \"elements\": [\n        {\n          \"type\": \"button\",\n          \"text\": {\n            \"type\": \"plain_text\",\n            \"text\": \"Voir l'annonce\"\n          },\n          \"url\": \"{{$json.url}}\"\n        }\n      ]\n    }\n  ]\n}"
+        },
+        "name": "Send Slack Notification",
+        "type": "n8n-nodes-base.httpRequest",
+        "typeVersion": 3,
+        "position": [1050, 350],
+        "id": "slack-node"
+      },
+      {
+        "parameters": {
+          "resource": "sheet",
+          "operation": "append",
+          "documentId": "={{google_sheet_id}}",
+          "sheetName": "Leads",
+          "columns": {
+            "mappings": [
+              {
+                "column": "Date",
+                "value": "={{$json.scraped_at}}"
+              },
+              {
+                "column": "Titre",
+                "value": "={{$json.title}}"
+              },
+              {
+                "column": "Prix",
+                "value": "={{$json.price}}"
+              },
+              {
+                "column": "Surface",
+                "value": "={{$json.surface}}"
+              },
+              {
+                "column": "Prix/m²",
+                "value": "={{$json.price_per_sqm}}"
+              },
+              {
+                "column": "Localisation",
+                "value": "={{$json.location}}"
+              },
+              {
+                "column": "Téléphone",
+                "value": "={{$json.phone}}"
+              },
+              {
+                "column": "URL",
+                "value": "={{$json.url}}"
+              }
+            ]
+          }
+        },
+        "name": "Save to Google Sheets",
+        "type": "n8n-nodes-base.googleSheets",
+        "typeVersion": 4,
+        "position": [1050, 450],
+        "id": "sheets-node",
+        "credentials": {
+          "googleSheetsOAuth2Api": {
+            "id": "google_sheets_user_{{user_id}}",
+            "name": "Google Sheets Account"
+          }
+        }
+      }
+    ],
+    "connections": {
+      "Schedule Trigger": {
+        "main": [
+          [
+            {
+              "node": "Scrape Ouedkniss",
+              "type": "main",
+              "index": 0
+            }
+          ]
+        ]
+      },
+      "Scrape Ouedkniss": {
+        "main": [
+          [
+            {
+              "node": "Parse & Filter Listings",
+              "type": "main",
+              "index": 0
+            }
+          ]
+        ]
+      },
+      "Parse & Filter Listings": {
+        "main": [
+          [
+            {
+              "node": "Has New Leads",
+              "type": "main",
+              "index": 0
+            }
+          ]
+        ]
+      },
+      "Has New Leads": {
+        "main": [
+          [
+            {
+              "node": "Send Email Notification",
+              "type": "main",
+              "index": 0
+            },
+            {
+              "node": "Send Slack Notification",
+              "type": "main",
+              "index": 0
+            },
+            {
+              "node": "Save to Google Sheets",
+              "type": "main",
+              "index": 0
+            }
+          ]
+        ]
+      }
+    },
+    "settings": {
+      "executionOrder": "v1"
+    }
+  },
+  "estimated_cost_dzd": 22.5,
+  "avg_execution_time_seconds": 45
+}

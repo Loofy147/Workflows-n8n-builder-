@@ -1,0 +1,508 @@
+{
+  "id": "yalidine_delivery_tracking",
+  "name": "Yalidine Delivery Automation",
+  "category": "logistics",
+  "description": "Complete delivery lifecycle management: Auto-creates Yalidine shipments from orders, tracks status updates in real-time, sends tracking links to customers via SMS/WhatsApp, and flags delivery delays for intervention",
+  "keywords": ["yalidine", "delivery", "shipping", "tracking", "livraison", "colis"],
+  "required_inputs": [
+    {
+      "name": "yalidine_api_key",
+      "type": "string",
+      "label": "Yalidine API Token",
+      "required": true
+    },
+    {
+      "name": "yalidine_center_id",
+      "type": "string",
+      "label": "Yalidine Center ID (ex: ALG001)",
+      "required": true
+    }
+  ],
+  "optional_inputs": [
+    {
+      "name": "auto_create_shipments",
+      "type": "select",
+      "label": "Création automatique des expéditions",
+      "options": [
+        {"value": "yes", "label": "Oui - dès paiement confirmé"},
+        {"value": "no", "label": "Non - création manuelle"}
+      ],
+      "default": "yes"
+    },
+    {
+      "name": "notification_method",
+      "type": "select",
+      "label": "Méthode de notification client",
+      "options": [
+        {"value": "sms", "label": "SMS"},
+        {"value": "whatsapp", "label": "WhatsApp"},
+        {"value": "both", "label": "SMS + WhatsApp"}
+      ],
+      "default": "sms"
+    },
+    {
+      "name": "delay_threshold_hours",
+      "type": "number",
+      "label": "Seuil d'alerte retard (heures)",
+      "default": 72,
+      "min": 24
+    }
+  ],
+  "n8n_json": {
+    "name": "Yalidine_Tracking_{{user_id}}",
+    "nodes": [
+      {
+        "parameters": {
+          "path": "new-order",
+          "options": {}
+        },
+        "name": "New Order Webhook",
+        "type": "n8n-nodes-base.webhook",
+        "typeVersion": 1,
+        "position": [250, 300],
+        "id": "webhook-node"
+      },
+      {
+        "parameters": {
+          "functionCode": "// Extract order details\nconst order = items[0].json;\n\nreturn [{\n  json: {\n    order_id: order.order_id,\n    customer_name: order.customer_name,\n    customer_phone: order.customer_phone.replace(/^0/, '+213'),\n    customer_address: order.delivery_address,\n    wilaya_code: order.wilaya,\n    commune: order.commune || '',\n    product_list: order.items,\n    total_amount: parseFloat(order.total),\n    cod_amount: order.payment_method === 'COD' ? parseFloat(order.total) : 0,\n    notes: order.delivery_notes || '',\n    timestamp: new Date().toISOString()\n  }\n}]);"
+        },
+        "name": "Format Order Data",
+        "type": "n8n-nodes-base.code",
+        "typeVersion": 2,
+        "position": [450, 300],
+        "id": "format-node"
+      },
+      {
+        "parameters": {
+          "conditions": {
+            "string": [
+              {
+                "value1": "={{auto_create_shipments}}",
+                "value2": "yes"
+              }
+            ]
+          }
+        },
+        "name": "Auto-Create Enabled?",
+        "type": "n8n-nodes-base.if",
+        "typeVersion": 1,
+        "position": [650, 300],
+        "id": "auto-check"
+      },
+      {
+        "parameters": {
+          "url": "https://api.yalidine.app/v1/parcels",
+          "sendHeaders": true,
+          "headerParameters": {
+            "parameters": [
+              {
+                "name": "X-API-TOKEN",
+                "value": "={{yalidine_api_key}}"
+              }
+            ]
+          },
+          "sendBody": true,
+          "bodyParametersJson": "={\n  \"order_id\": \"{{$json.order_id}}\",\n  \"from_wilaya_id\": {{yalidine_center_id}},\n  \"firstname\": \"{{$json.customer_name.split(' ')[0]}}\",\n  \"familyname\": \"{{$json.customer_name.split(' ').slice(1).join(' ')}}\",\n  \"contact_phone\": \"{{$json.customer_phone}}\",\n  \"address\": \"{{$json.customer_address}}\",\n  \"to_wilaya_id\": {{$json.wilaya_code}},\n  \"to_commune_id\": \"{{$json.commune}}\",\n  \"product_list\": \"{{$json.product_list}}\",\n  \"price\": {{$json.total_amount}},\n  \"do_insurance\": false,\n  \"declared_value\": {{$json.total_amount}},\n  \"height\": 10,\n  \"width\": 20,\n  \"length\": 30,\n  \"weight\": 1,\n  \"freeshipping\": false,\n  \"is_stopdesk\": false,\n  \"stopdesk_id\": null,\n  \"has_exchange\": false,\n  \"product_to_collect\": null\n}",
+          "options": {}
+        },
+        "name": "Create Yalidine Shipment",
+        "type": "n8n-nodes-base.httpRequest",
+        "typeVersion": 4.1,
+        "position": [850, 250],
+        "id": "create-shipment"
+      },
+      {
+        "parameters": {
+          "functionCode": "const response = items[0].json;\nconst trackingNumber = response.data?.tracking || response.tracking;\nconst trackingUrl = `https://www.yalidine.app/track/${trackingNumber}`;\n\nreturn [{\n  json: {\n    ...items[0].json,\n    tracking_number: trackingNumber,\n    tracking_url: trackingUrl,\n    shipment_created: true,\n    yalidine_id: response.data?.id || response.id\n  }\n}];"
+        },
+        "name": "Extract Tracking Info",
+        "type": "n8n-nodes-base.code",
+        "typeVersion": 2,
+        "position": [1050, 250],
+        "id": "extract-tracking"
+      },
+      {
+        "parameters": {
+          "url": "https://api.sms-algeria.dz/send",
+          "sendHeaders": true,
+          "headerParameters": {
+            "parameters": [
+              {
+                "name": "Authorization",
+                "value": "Bearer YOUR_SMS_API_KEY"
+              }
+            ]
+          },
+          "sendBody": true,
+          "bodyParametersJson": "={\n  \"to\": \"{{$json.customer_phone}}\",\n  \"message\": \"📦 Votre commande {{$json.order_id}} est en route!\\nSuivi: {{$json.tracking_url}}\\nYalidine livrera sous 2-4 jours.\"\n}",
+          "options": {}
+        },
+        "name": "Send Tracking SMS",
+        "type": "n8n-nodes-base.httpRequest",
+        "typeVersion": 4.1,
+        "position": [1250, 200],
+        "id": "sms-tracking"
+      },
+      {
+        "parameters": {
+          "url": "=https://graph.facebook.com/v18.0/{{whatsapp_phone_id}}/messages",
+          "sendHeaders": true,
+          "headerParameters": {
+            "parameters": [
+              {
+                "name": "Authorization",
+                "value": "=Bearer {{whatsapp_token}}"
+              }
+            ]
+          },
+          "sendBody": true,
+          "bodyParametersJson": "={\n  \"messaging_product\": \"whatsapp\",\n  \"to\": \"{{$json.customer_phone}}\",\n  \"type\": \"template\",\n  \"template\": {\n    \"name\": \"shipment_tracking\",\n    \"language\": {\"code\": \"fr\"},\n    \"components\": [\n      {\n        \"type\": \"body\",\n        \"parameters\": [\n          {\"type\": \"text\", \"text\": \"{{$json.order_id}}\"},\n          {\"type\": \"text\", \"text\": \"{{$json.tracking_number}}\"}\n        ]\n      },\n      {\n        \"type\": \"button\",\n        \"sub_type\": \"url\",\n        \"index\": \"0\",\n        \"parameters\": [\n          {\"type\": \"text\", \"text\": \"{{$json.tracking_number}}\"}\n        ]\n      }\n    ]\n  }\n}",
+          "options": {}
+        },
+        "name": "Send WhatsApp Tracking",
+        "type": "n8n-nodes-base.httpRequest",
+        "typeVersion": 4.1,
+        "position": [1250, 300],
+        "id": "whatsapp-tracking"
+      },
+      {
+        "parameters": {
+          "resource": "sheet",
+          "operation": "update",
+          "documentId": "={{google_sheet_id}}",
+          "sheetName": "Orders",
+          "updateKey": "Order ID",
+          "updateKeyValue": "={{$json.order_id}}",
+          "columns": {
+            "mappings": [
+              {
+                "column": "Tracking Number",
+                "value": "={{$json.tracking_number}}"
+              },
+              {
+                "column": "Delivery Status",
+                "value": "Shipped"
+              },
+              {
+                "column": "Shipment Date",
+                "value": "={{$json.timestamp}}"
+              },
+              {
+                "column": "Yalidine ID",
+                "value": "={{$json.yalidine_id}}"
+              }
+            ]
+          }
+        },
+        "name": "Update Order Sheet",
+        "type": "n8n-nodes-base.googleSheets",
+        "typeVersion": 4,
+        "position": [1250, 400],
+        "id": "update-sheet",
+        "credentials": {
+          "googleSheetsOAuth2Api": {
+            "id": "google_sheets_user_{{user_id}}",
+            "name": "Google Sheets Account"
+          }
+        }
+      },
+      {
+        "parameters": {
+          "rule": {
+            "interval": [
+              {
+                "field": "hours",
+                "hoursInterval": 6
+              }
+            ]
+          }
+        },
+        "name": "Check Status Every 6H",
+        "type": "n8n-nodes-base.scheduleTrigger",
+        "typeVersion": 1,
+        "position": [250, 600],
+        "id": "status-schedule"
+      },
+      {
+        "parameters": {
+          "resource": "sheet",
+          "operation": "read",
+          "documentId": "={{google_sheet_id}}",
+          "sheetName": "Orders",
+          "filters": {
+            "conditions": [
+              {
+                "column": "Delivery Status",
+                "condition": "notEqual",
+                "value": "Delivered"
+              }
+            ]
+          }
+        },
+        "name": "Get Active Shipments",
+        "type": "n8n-nodes-base.googleSheets",
+        "typeVersion": 4,
+        "position": [450, 600],
+        "id": "get-active",
+        "credentials": {
+          "googleSheetsOAuth2Api": {
+            "id": "google_sheets_user_{{user_id}}",
+            "name": "Google Sheets Account"
+          }
+        }
+      },
+      {
+        "parameters": {
+          "batchSize": 10,
+          "options": {}
+        },
+        "name": "Split Into Batches",
+        "type": "n8n-nodes-base.splitInBatches",
+        "typeVersion": 3,
+        "position": [650, 600],
+        "id": "batch-split"
+      },
+      {
+        "parameters": {
+          "url": "=https://api.yalidine.app/v1/parcels/{{$json['Tracking Number']}}/tracking",
+          "sendHeaders": true,
+          "headerParameters": {
+            "parameters": [
+              {
+                "name": "X-API-TOKEN",
+                "value": "={{yalidine_api_key}}"
+              }
+            ]
+          }
+        },
+        "name": "Fetch Tracking Update",
+        "type": "n8n-nodes-base.httpRequest",
+        "typeVersion": 4.1,
+        "position": [850, 600],
+        "id": "fetch-status"
+      },
+      {
+        "parameters": {
+          "functionCode": "const statusData = items[0].json;\nconst currentStatus = statusData.data?.status || statusData.status;\nconst lastUpdate = statusData.data?.last_update || statusData.updated_at;\nconst shipmentDate = new Date(items[0].json['Shipment Date']);\nconst hoursElapsed = (new Date() - shipmentDate) / (1000 * 60 * 60);\nconst delayThreshold = {{delay_threshold_hours}};\n\nconst statusMap = {\n  'pending': 'En attente',\n  'picked_up': 'Collecté',\n  'in_transit': 'En transit',\n  'out_for_delivery': 'En livraison',\n  'delivered': 'Livré',\n  'returned': 'Retourné',\n  'cancelled': 'Annulé'\n};\n\nconst isDelayed = (\n  hoursElapsed > delayThreshold && \n  !['delivered', 'returned', 'cancelled'].includes(currentStatus)\n);\n\nreturn [{\n  json: {\n    ...items[0].json,\n    current_status: currentStatus,\n    status_fr: statusMap[currentStatus] || currentStatus,\n    last_update: lastUpdate,\n    hours_elapsed: Math.round(hoursElapsed),\n    is_delayed: isDelayed,\n    status_changed: items[0].json['Delivery Status'] !== statusMap[currentStatus]\n  }\n}];"
+        },
+        "name": "Analyze Status",
+        "type": "n8n-nodes-base.code",
+        "typeVersion": 2,
+        "position": [1050, 600],
+        "id": "analyze-status"
+      },
+      {
+        "parameters": {
+          "conditions": {
+            "boolean": [
+              {
+                "value1": "={{$json.status_changed}}",
+                "value2": true
+              }
+            ]
+          }
+        },
+        "name": "Status Changed?",
+        "type": "n8n-nodes-base.if",
+        "typeVersion": 1,
+        "position": [1250, 600],
+        "id": "status-changed-check"
+      },
+      {
+        "parameters": {
+          "url": "https://api.sms-algeria.dz/send",
+          "sendBody": true,
+          "bodyParametersJson": "={\n  \"to\": \"{{$json['Customer Phone']}}\",\n  \"message\": \"📍 MAJ Livraison {{$json['Order ID']}}:\\n{{$json.status_fr}}\\n{{$json.last_update}}\\nSuivi: yalidine.app/track/{{$json['Tracking Number']}}\"\n}"
+        },
+        "name": "Notify Status Change",
+        "type": "n8n-nodes-base.httpRequest",
+        "typeVersion": 4.1,
+        "position": [1450, 550],
+        "id": "notify-change"
+      },
+      {
+        "parameters": {
+          "conditions": {
+            "boolean": [
+              {
+                "value1": "={{$json.is_delayed}}",
+                "value2": true
+              }
+            ]
+          }
+        },
+        "name": "Is Delayed?",
+        "type": "n8n-nodes-base.if",
+        "typeVersion": 1,
+        "position": [1250, 750],
+        "id": "delay-check"
+      },
+      {
+        "parameters": {
+          "url": "={{slack_webhook}}",
+          "sendBody": true,
+          "bodyParametersJson": "={\n  \"text\": \"🚨 *Retard de livraison détecté*\\n\\n*Commande:* {{$json['Order ID']}}\\n*Client:* {{$json['Customer Name']}}\\n*Délai écoulé:* {{$json.hours_elapsed}}h\\n*Statut actuel:* {{$json.status_fr}}\\n*Tracking:* {{$json['Tracking Number']}}\\n\\nAction requise: Contacter Yalidine\"\n}"
+        },
+        "name": "Alert Team - Delay",
+        "type": "n8n-nodes-base.httpRequest",
+        "typeVersion": 4.1,
+        "position": [1450, 750],
+        "id": "alert-delay"
+      }
+    ],
+    "connections": {
+      "New Order Webhook": {
+        "main": [
+          [
+            {
+              "node": "Format Order Data",
+              "type": "main",
+              "index": 0
+            }
+          ]
+        ]
+      },
+      "Format Order Data": {
+        "main": [
+          [
+            {
+              "node": "Auto-Create Enabled?",
+              "type": "main",
+              "index": 0
+            }
+          ]
+        ]
+      },
+      "Auto-Create Enabled?": {
+        "main": [
+          [
+            {
+              "node": "Create Yalidine Shipment",
+              "type": "main",
+              "index": 0
+            }
+          ]
+        ]
+      },
+      "Create Yalidine Shipment": {
+        "main": [
+          [
+            {
+              "node": "Extract Tracking Info",
+              "type": "main",
+              "index": 0
+            }
+          ]
+        ]
+      },
+      "Extract Tracking Info": {
+        "main": [
+          [
+            {
+              "node": "Send Tracking SMS",
+              "type": "main",
+              "index": 0
+            },
+            {
+              "node": "Send WhatsApp Tracking",
+              "type": "main",
+              "index": 0
+            },
+            {
+              "node": "Update Order Sheet",
+              "type": "main",
+              "index": 0
+            }
+          ]
+        ]
+      },
+      "Check Status Every 6H": {
+        "main": [
+          [
+            {
+              "node": "Get Active Shipments",
+              "type": "main",
+              "index": 0
+            }
+          ]
+        ]
+      },
+      "Get Active Shipments": {
+        "main": [
+          [
+            {
+              "node": "Split Into Batches",
+              "type": "main",
+              "index": 0
+            }
+          ]
+        ]
+      },
+      "Split Into Batches": {
+        "main": [
+          [
+            {
+              "node": "Fetch Tracking Update",
+              "type": "main",
+              "index": 0
+            }
+          ]
+        ]
+      },
+      "Fetch Tracking Update": {
+        "main": [
+          [
+            {
+              "node": "Analyze Status",
+              "type": "main",
+              "index": 0
+            }
+          ]
+        ]
+      },
+      "Analyze Status": {
+        "main": [
+          [
+            {
+              "node": "Status Changed?",
+              "type": "main",
+              "index": 0
+            },
+            {
+              "node": "Is Delayed?",
+              "type": "main",
+              "index": 0
+            }
+          ]
+        ]
+      },
+      "Status Changed?": {
+        "main": [
+          [
+            {
+              "node": "Notify Status Change",
+              "type": "main",
+              "index": 0
+            }
+          ]
+        ]
+      },
+      "Is Delayed?": {
+        "main": [
+          [
+            {
+              "node": "Alert Team - Delay",
+              "type": "main",
+              "index": 0
+            }
+          ]
+        ]
+      }
+    },
+    "settings": {
+      "executionOrder": "v1"
+    }
+  },
+  "estimated_cost_dzd": 16.0,
+  "avg_execution_time_seconds": 35
+}

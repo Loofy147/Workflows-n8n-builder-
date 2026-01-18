@@ -27,8 +27,10 @@ function App() {
           <WorkflowActivation
             form={activationData.activation_form}
             templateId={activationData.workflow.id}
+            estimatedCost={activationData.estimated_cost}
+            executionTime={activationData.execution_time}
             onSuccess={(result) => {
-              alert('Workflow activated successfully!');
+              alert('Workflow activé avec succès!');
               setView('chat');
             }}
             onCancel={() => setView('chat')}

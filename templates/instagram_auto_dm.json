@@ -1,0 +1,308 @@
+{
+  "id": "instagram_auto_dm",
+  "name": "Instagram DM Auto-Response (Darja)",
+  "category": "social_media",
+  "description": "Intelligent Instagram DM handler that responds to common queries in Darja/French, qualifies leads by detecting purchase intent, forwards product inquiries with images to WhatsApp, and escalates complex issues to human team",
+  "keywords": ["instagram", "dm", "darja", "social media", "auto-response", "engagement"],
+  "required_inputs": [
+    {
+      "name": "instagram_business_id",
+      "type": "string",
+      "label": "Instagram Business Account ID",
+      "required": true
+    },
+    {
+      "name": "instagram_access_token",
+      "type": "string",
+      "label": "Instagram Graph API Token",
+      "required": true
+    }
+  ],
+  "optional_inputs": [
+    {
+      "name": "forward_to_whatsapp",
+      "type": "string",
+      "label": "Numéro WhatsApp pour leads (+213XXXXXXXXX)",
+      "required": false
+    },
+    {
+      "name": "product_catalog_sheet",
+      "type": "string",
+      "label": "Google Sheet ID (Catalogue produits)",
+      "required": false
+    },
+    {
+      "name": "response_delay_seconds",
+      "type": "number",
+      "label": "Délai avant réponse (secondes)",
+      "default": 3,
+      "min": 0,
+      "max": 30
+    }
+  ],
+  "n8n_json": {
+    "name": "Instagram_Auto_DM_{{user_id}}",
+    "nodes": [
+      {
+        "parameters": {
+          "path": "instagram-webhook",
+          "options": {}
+        },
+        "name": "Instagram Webhook",
+        "type": "n8n-nodes-base.webhook",
+        "typeVersion": 1,
+        "position": [250, 300],
+        "id": "webhook-node"
+      },
+      {
+        "parameters": {
+          "functionCode": "const webhookData = items[0].json;\nconst entry = webhookData.entry?.[0];\nconst messaging = entry?.messaging?.[0];\nconst message = messaging?.message;\n\nif (!message) return [];\n\nconst senderId = messaging.sender.id;\nconst messageText = message.text || '';\nconst messageTime = messaging.timestamp;\n\n// Language detection\nconst hasDarjaWords = /(واش|راك|كيما|بصح|شكون|كاين|شحال)/i.test(messageText);\nconst hasFrenchWords = /(bonjour|prix|disponible|merci|commander)/i.test(messageText);\nconst language = hasDarjaWords ? 'darja' : (hasFrenchWords ? 'fr' : 'ar');\n\n// Intent detection\nconst greetingPattern = /(salam|سلام|bonjour|hi|hello)/i;\nconst pricePattern = /(prix|سعر|combien|ثمن|شحال)/i;\nconst availabilityPattern = /(disponible|متوفر|كاين|stock)/i;\nconst orderPattern = /(commander|طلب|acheter|شراء)/i;\nconst locationPattern = /(livraison|توصيل|wilaya|ولاية)/i;\n\nconst intents = {\n  greeting: greetingPattern.test(messageText),\n  price_inquiry: pricePattern.test(messageText),\n  availability: availabilityPattern.test(messageText),\n  order_intent: orderPattern.test(messageText),\n  delivery_info: locationPattern.test(messageText)\n};\n\nconst isQualifiedLead = intents.price_inquiry || intents.order_intent;\n\nreturn [{\n  json: {\n    sender_id: senderId,\n    message: messageText,\n    timestamp: messageTime,\n    language: language,\n    intents: intents,\n    is_lead: isQualifiedLead\n  }\n}];"
+        },
+        "name": "Parse DM & Detect Intent",
+        "type": "n8n-nodes-base.code",
+        "typeVersion": 2,
+        "position": [450, 300],
+        "id": "parse-node"
+      },
+      {
+        "parameters": {
+          "amount": "={{response_delay_seconds}}",
+          "unit": "seconds"
+        },
+        "name": "Natural Delay",
+        "type": "n8n-nodes-base.wait",
+        "typeVersion": 1,
+        "position": [650, 300],
+        "id": "delay-node"
+      },
+      {
+        "parameters": {
+          "functionCode": "const language = items[0].json.language;\nconst intents = items[0].json.intents;\n\nconst responses = {\n  darja: {\n    greeting: 'السلام عليكم! 👋 كيفاش نقدر نعاونك اليوم؟',\n    price: 'الأسعار متاع المنتوجات موجودين في البوست. واش تحب نفهمك على منتوج معين؟',\n    availability: 'ايه كاين في stock! 📦 واش تحب نبعتلك التفاصيل على WhatsApp؟',\n    order: 'باش تكمل الطلبية، ابعتلي رقمك على WhatsApp ونتواصلو معاك! 📱',\n    delivery: 'نوصلو لكامل الولايات عن طريق Yalidine. الليفريزون تاخذ 2-4 أيام. 🚚',\n    default: 'شكرا على المسج! راني هنا باش نجاوبك. شنوا تحب تعرف؟ 😊'\n  },\n  fr: {\n    greeting: 'Bonjour! 👋 Comment puis-je vous aider?',\n    price: 'Les prix sont dans nos posts. Quel produit vous intéresse?',\n    availability: 'Oui, disponible en stock! 📦 Souhaitez-vous plus de détails sur WhatsApp?',\n    order: 'Pour commander, envoyez-nous votre numéro WhatsApp et on vous contacte! 📱',\n    delivery: 'Livraison dans toutes les wilayas via Yalidine (2-4 jours). 🚚',\n    default: 'Merci pour votre message! Je suis là pour vous aider. Que voulez-vous savoir? 😊'\n  }\n};\n\nconst lang = language === 'darja' ? 'darja' : 'fr';\nlet responseText = responses[lang].default;\n\nif (intents.greeting) responseText = responses[lang].greeting;\nelse if (intents.price_inquiry) responseText = responses[lang].price;\nelse if (intents.availability) responseText = responses[lang].availability;\nelse if (intents.order_intent) responseText = responses[lang].order;\nelse if (intents.delivery_info) responseText = responses[lang].delivery;\n\nreturn [{\n  json: {\n    ...items[0].json,\n    response_text: responseText\n  }\n}];"
+        },
+        "name": "Generate Response",
+        "type": "n8n-nodes-base.code",
+        "typeVersion": 2,
+        "position": [850, 300],
+        "id": "generate-response"
+      },
+      {
+        "parameters": {
+          "url": "=https://graph.facebook.com/v18.0/me/messages",
+          "sendQuery": true,
+          "queryParameters": {
+            "parameters": [
+              {
+                "name": "access_token",
+                "value": "={{instagram_access_token}}"
+              }
+            ]
+          },
+          "sendBody": true,
+          "bodyParametersJson": "={\n  \"recipient\": {\n    \"id\": \"{{$json.sender_id}}\"\n  },\n  \"message\": {\n    \"text\": \"{{$json.response_text}}\"\n  }\n}",
+          "options": {}
+        },
+        "name": "Send Instagram Reply",
+        "type": "n8n-nodes-base.httpRequest",
+        "typeVersion": 4.1,
+        "position": [1050, 300],
+        "id": "send-reply"
+      },
+      {
+        "parameters": {
+          "conditions": {
+            "boolean": [
+              {
+                "value1": "={{$json.is_lead}}",
+                "value2": true
+              }
+            ]
+          }
+        },
+        "name": "Is Qualified Lead?",
+        "type": "n8n-nodes-base.if",
+        "typeVersion": 1,
+        "position": [1050, 450],
+        "id": "lead-check"
+      },
+      {
+        "parameters": {
+          "url": "=https://graph.facebook.com/v18.0/{{$json.sender_id}}",
+          "sendQuery": true,
+          "queryParameters": {
+            "parameters": [
+              {
+                "name": "fields",
+                "value": "name,username,profile_pic"
+              },
+              {
+                "name": "access_token",
+                "value": "={{instagram_access_token}}"
+              }
+            ]
+          }
+        },
+        "name": "Get User Profile",
+        "type": "n8n-nodes-base.httpRequest",
+        "typeVersion": 4.1,
+        "position": [1250, 400],
+        "id": "get-profile"
+      },
+      {
+        "parameters": {
+          "url": "=https://graph.facebook.com/v18.0/{{whatsapp_phone_id}}/messages",
+          "sendHeaders": true,
+          "headerParameters": {
+            "parameters": [
+              {
+                "name": "Authorization",
+                "value": "=Bearer {{whatsapp_token}}"
+              }
+            ]
+          },
+          "sendBody": true,
+          "bodyParametersJson": "={\n  \"messaging_product\": \"whatsapp\",\n  \"to\": \"{{forward_to_whatsapp}}\",\n  \"type\": \"text\",\n  \"text\": {\n    \"body\": \"🔥 *Nouveau Lead Instagram*\\n\\n*Nom:* {{$json.name}}\\n*Username:* @{{$json.username}}\\n*Message:* {{$node[\"Parse DM & Detect Intent\"].json.message}}\\n*Intent:* Prix/Commande\\n\\nRépondre rapidement sur Instagram!\"\n  }\n}",
+          "options": {}
+        },
+        "name": "Forward Lead to WhatsApp",
+        "type": "n8n-nodes-base.httpRequest",
+        "typeVersion": 4.1,
+        "position": [1450, 400],
+        "id": "forward-whatsapp"
+      },
+      {
+        "parameters": {
+          "resource": "sheet",
+          "operation": "append",
+          "documentId": "={{google_sheet_id}}",
+          "sheetName": "Instagram Leads",
+          "columns": {
+            "mappings": [
+              {
+                "column": "Timestamp",
+                "value": "={{$json.timestamp}}"
+              },
+              {
+                "column": "Name",
+                "value": "={{$json.name}}"
+              },
+              {
+                "column": "Username",
+                "value": "={{$json.username}}"
+              },
+              {
+                "column": "Message",
+                "value": "={{$node[\"Parse DM & Detect Intent\"].json.message}}"
+              },
+              {
+                "column": "Language",
+                "value": "={{$node[\"Parse DM & Detect Intent\"].json.language}}"
+              },
+              {
+                "column": "Intent",
+                "value": "={{Object.keys($node[\"Parse DM & Detect Intent\"].json.intents).filter(k => $node[\"Parse DM & Detect Intent\"].json.intents[k]).join(', ')}}"
+              },
+              {
+                "column": "Response Sent",
+                "value": "={{$node[\"Generate Response\"].json.response_text}}"
+              }
+            ]
+          }
+        },
+        "name": "Log to Google Sheets",
+        "type": "n8n-nodes-base.googleSheets",
+        "typeVersion": 4,
+        "position": [1450, 500],
+        "id": "log-sheet",
+        "credentials": {
+          "googleSheetsOAuth2Api": {
+            "id": "google_sheets_user_{{user_id}}",
+            "name": "Google Sheets Account"
+          }
+        }
+      }
+    ],
+    "connections": {
+      "Instagram Webhook": {
+        "main": [
+          [
+            {
+              "node": "Parse DM & Detect Intent",
+              "type": "main",
+              "index": 0
+            }
+          ]
+        ]
+      },
+      "Parse DM & Detect Intent": {
+        "main": [
+          [
+            {
+              "node": "Natural Delay",
+              "type": "main",
+              "index": 0
+            }
+          ]
+        ]
+      },
+      "Natural Delay": {
+        "main": [
+          [
+            {
+              "node": "Generate Response",
+              "type": "main",
+              "index": 0
+            }
+          ]
+        ]
+      },
+      "Generate Response": {
+        "main": [
+          [
+            {
+              "node": "Send Instagram Reply",
+              "type": "main",
+              "index": 0
+            },
+            {
+              "node": "Is Qualified Lead?",
+              "type": "main",
+              "index": 0
+            }
+          ]
+        ]
+      },
+      "Is Qualified Lead?": {
+        "main": [
+          [
+            {
+              "node": "Get User Profile",
+              "type": "main",
+              "index": 0
+            }
+          ]
+        ]
+      },
+      "Get User Profile": {
+        "main": [
+          [
+            {
+              "node": "Forward Lead to WhatsApp",
+              "type": "main",
+              "index": 0
+            },
+            {
+              "node": "Log to Google Sheets",
+              "type": "main",
+              "index": 0
+            }
+          ]
+        ]
+      }
+    },
+    "settings": {
+      "executionOrder": "v1"
+    }
+  },
+  "estimated_cost_dzd": 9.0,
+  "avg_execution_time_seconds": 6
+}

@@ -45,6 +45,10 @@ class AIWorkflowAgent:
             dict: Response containing message, workflow data, or clarification questions
         """
         try:
+            # Re-initialize template matcher with DB if provided
+            if db:
+                self.template_matcher = TemplateMatcher(db=db)
+
             # 2026 Tracing
             if orchestrator_state:
                 orchestrator_state.trace.append(f"Agent {self.role} started processing.")
@@ -88,7 +92,7 @@ class AIWorkflowAgent:
                 return await self._handle_clarification(agent_response, user_id)
 
             elif agent_response['type'] == 'workflow_ready':
-                return await self._handle_workflow_creation(agent_response, user_id)
+                return await self._handle_workflow_creation(agent_response, user_id, db=db)
 
             elif agent_response['type'] == 'error':
                 return await self._handle_error(agent_response)
@@ -258,7 +262,7 @@ IMPORTANT:
             "confidence": response.get('confidence', 0.0)
         }
 
-    async def _handle_workflow_creation(self, response: Dict, user_id: str) -> Dict:
+    async def _handle_workflow_creation(self, response: Dict, user_id: str, db: Optional[Any] = None) -> Dict:
         """Handle workflow creation when agent has all info"""
         from app.services.workflow_builder import WorkflowBuilder
 
@@ -273,7 +277,8 @@ IMPORTANT:
             workflow = await builder.build_from_template(
                 template=template,
                 user_id=user_id,
-                inputs=response['inputs']
+                inputs=response['inputs'],
+                db=db
             )
 
             # Generate activation form

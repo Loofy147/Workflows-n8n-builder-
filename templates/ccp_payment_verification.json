@@ -1,0 +1,439 @@
+{
+  "id": "ccp_payment_verification",
+  "name": "CCP Payment Auto-Verification",
+  "category": "finance",
+  "description": "Automatically verifies CCP payments by monitoring BaridiMob/CCP API, matches transactions to orders, sends confirmation emails/SMS, and updates Google Sheets inventory. Handles Algeria-specific payment methods with fraud detection.",
+  "keywords": ["ccp", "baridimob", "payment", "verification", "baridi", "chèque postal", "paiement"],
+  "required_inputs": [
+    {
+      "name": "ccp_account_number",
+      "type": "string",
+      "label": "Numéro de compte CCP",
+      "required": true,
+      "pattern": "^[0-9]{10,20}$"
+    },
+    {
+      "name": "baridimob_api_key",
+      "type": "string",
+      "label": "BaridiMob API Key",
+      "required": true
+    }
+  ],
+  "optional_inputs": [
+    {
+      "name": "min_amount_verify",
+      "type": "number",
+      "label": "Montant minimum pour vérification manuelle (DZD)",
+      "default": 50000,
+      "min": 0
+    },
+    {
+      "name": "notification_phone",
+      "type": "string",
+      "label": "Numéro pour notifications SMS",
+      "required": false
+    },
+    {
+      "name": "google_sheet_orders",
+      "type": "string",
+      "label": "Google Sheet ID (Commandes)",
+      "required": false
+    },
+    {
+      "name": "auto_confirm_threshold",
+      "type": "number",
+      "label": "Montant pour confirmation automatique (DZD)",
+      "default": 10000
+    }
+  ],
+  "n8n_json": {
+    "name": "CCP_Payment_Verification_{{user_id}}",
+    "nodes": [
+      {
+        "parameters": {
+          "rule": {
+            "interval": [
+              {
+                "field": "minutes",
+                "minutesInterval": 5
+              }
+            ]
+          }
+        },
+        "name": "Check Every 5 Minutes",
+        "type": "n8n-nodes-base.scheduleTrigger",
+        "typeVersion": 1,
+        "position": [250, 300],
+        "id": "schedule-node"
+      },
+      {
+        "parameters": {
+          "url": "https://api.baridimob.dz/v1/transactions",
+          "authentication": "predefinedCredentialType",
+          "nodeCredentialType": "httpHeaderAuth",
+          "sendHeaders": true,
+          "headerParameters": {
+            "parameters": [
+              {
+                "name": "Authorization",
+                "value": "=Bearer {{baridimob_api_key}}"
+              }
+            ]
+          },
+          "sendQuery": true,
+          "queryParameters": {
+            "parameters": [
+              {
+                "name": "account",
+                "value": "={{ccp_account_number}}"
+              },
+              {
+                "name": "status",
+                "value": "pending"
+              },
+              {
+                "name": "limit",
+                "value": "50"
+              }
+            ]
+          }
+        },
+        "name": "Fetch Pending Transactions",
+        "type": "n8n-nodes-base.httpRequest",
+        "typeVersion": 4.1,
+        "position": [450, 300],
+        "id": "fetch-node"
+      },
+      {
+        "parameters": {
+          "functionCode": "const transactions = items[0].json.data || [];\nconst processed = [];\n\nfor (const tx of transactions) {\n  // Extract CCP transaction details\n  const amount = parseFloat(tx.amount);\n  const reference = tx.reference || '';\n  const senderName = tx.sender_name || '';\n  const senderCCP = tx.sender_account || '';\n  const timestamp = tx.timestamp;\n  const transactionId = tx.id;\n  \n  // Fraud detection heuristics\n  const isSuspicious = (\n    amount > 100000 || // Large amount\n    reference.length === 0 || // No reference\n    /test|fake|dummy/i.test(reference) // Test keywords\n  );\n  \n  // Try to match with order reference\n  const orderMatch = reference.match(/CMD[0-9]{6}|ORD[0-9]{6}/i);\n  const orderId = orderMatch ? orderMatch[0] : null;\n  \n  processed.push({\n    transaction_id: transactionId,\n    amount: amount,\n    sender_name: senderName,\n    sender_ccp: senderCCP,\n    reference: reference,\n    order_id: orderId,\n    timestamp: timestamp,\n    is_suspicious: isSuspicious,\n    requires_manual_review: isSuspicious || amount >= {{min_amount_verify}},\n    can_auto_confirm: !isSuspicious && amount <= {{auto_confirm_threshold}} && orderId !== null\n  });\n}\n\nreturn processed.map(tx => ({ json: tx }));"
+        },
+        "name": "Parse & Validate Transactions",
+        "type": "n8n-nodes-base.code",
+        "typeVersion": 2,
+        "position": [650, 300],
+        "id": "parse-node"
+      },
+      {
+        "parameters": {
+          "conditions": {
+            "boolean": [
+              {
+                "value1": "={{$json.can_auto_confirm}}",
+                "value2": true
+              }
+            ]
+          }
+        },
+        "name": "Can Auto-Confirm?",
+        "type": "n8n-nodes-base.if",
+        "typeVersion": 1,
+        "position": [850, 300],
+        "id": "auto-confirm-check"
+      },
+      {
+        "parameters": {
+          "resource": "sheet",
+          "operation": "lookupColumn",
+          "documentId": "={{google_sheet_orders}}",
+          "sheetName": "Orders",
+          "lookupColumn": "Order ID",
+          "lookupValue": "={{$json.order_id}}",
+          "returnColumn": "Customer Email,Customer Phone,Total Amount,Status"
+        },
+        "name": "Lookup Order Details",
+        "type": "n8n-nodes-base.googleSheets",
+        "typeVersion": 4,
+        "position": [1050, 250],
+        "id": "lookup-order",
+        "credentials": {
+          "googleSheetsOAuth2Api": {
+            "id": "google_sheets_user_{{user_id}}",
+            "name": "Google Sheets Account"
+          }
+        }
+      },
+      {
+        "parameters": {
+          "conditions": {
+            "number": [
+              {
+                "value1": "={{$json.amount}}",
+                "operation": "equal",
+                "value2": "={{$json['Total Amount']}}"
+              }
+            ]
+          }
+        },
+        "name": "Amount Matches?",
+        "type": "n8n-nodes-base.if",
+        "typeVersion": 1,
+        "position": [1250, 250],
+        "id": "amount-match"
+      },
+      {
+        "parameters": {
+          "url": "https://api.baridimob.dz/v1/transactions/={{$json.transaction_id}}/confirm",
+          "sendHeaders": true,
+          "headerParameters": {
+            "parameters": [
+              {
+                "name": "Authorization",
+                "value": "=Bearer {{baridimob_api_key}}"
+              }
+            ]
+          },
+          "sendBody": true,
+          "bodyParametersJson": "={\"status\": \"confirmed\"}",
+          "options": {}
+        },
+        "name": "Confirm Payment in CCP",
+        "type": "n8n-nodes-base.httpRequest",
+        "typeVersion": 4.1,
+        "position": [1450, 200],
+        "id": "confirm-payment"
+      },
+      {
+        "parameters": {
+          "resource": "sheet",
+          "operation": "update",
+          "documentId": "={{google_sheet_orders}}",
+          "sheetName": "Orders",
+          "updateKey": "Order ID",
+          "updateKeyValue": "={{$json.order_id}}",
+          "columns": {
+            "mappings": [
+              {
+                "column": "Status",
+                "value": "Paid - Confirmed"
+              },
+              {
+                "column": "Payment Method",
+                "value": "CCP"
+              },
+              {
+                "column": "Payment Date",
+                "value": "={{$json.timestamp}}"
+              },
+              {
+                "column": "Transaction ID",
+                "value": "={{$json.transaction_id}}"
+              }
+            ]
+          }
+        },
+        "name": "Update Order Status",
+        "type": "n8n-nodes-base.googleSheets",
+        "typeVersion": 4,
+        "position": [1450, 300],
+        "id": "update-order",
+        "credentials": {
+          "googleSheetsOAuth2Api": {
+            "id": "google_sheets_user_{{user_id}}",
+            "name": "Google Sheets Account"
+          }
+        }
+      },
+      {
+        "parameters": {
+          "fromEmail": "payments@yourbusiness.dz",
+          "toEmail": "={{$json['Customer Email']}}",
+          "subject": "✅ Paiement confirmé - Commande {{$json.order_id}}",
+          "emailFormat": "html",
+          "text": "=<h2>Votre paiement a été confirmé!</h2>\n\n<p>Bonjour,</p>\n\n<p>Nous avons bien reçu votre paiement CCP de <strong>{{$json.amount}} DA</strong> pour la commande <strong>{{$json.order_id}}</strong>.</p>\n\n<p><strong>Détails du paiement:</strong></p>\n<ul>\n  <li>Montant: {{$json.amount}} DA</li>\n  <li>ID Transaction: {{$json.transaction_id}}</li>\n  <li>Date: {{$json.timestamp}}</li>\n  <li>Nom expéditeur: {{$json.sender_name}}</li>\n</ul>\n\n<p>Votre commande sera traitée sous 24h et expédiée via Yalidine.</p>\n\n<p>Merci de votre confiance! 🇩🇿</p>"
+        },
+        "name": "Send Confirmation Email",
+        "type": "n8n-nodes-base.emailSend",
+        "typeVersion": 2,
+        "position": [1450, 400],
+        "id": "email-node"
+      },
+      {
+        "parameters": {
+          "url": "https://api.sms-algeria.dz/send",
+          "sendHeaders": true,
+          "headerParameters": {
+            "parameters": [
+              {
+                "name": "Authorization",
+                "value": "Bearer YOUR_SMS_API_KEY"
+              }
+            ]
+          },
+          "sendBody": true,
+          "bodyParametersJson": "={\n  \"to\": \"{{$json['Customer Phone']}}\",\n  \"message\": \"✅ Paiement confirmé! Commande {{$json.order_id}} - {{$json.amount}} DA reçu. Livraison sous 24-48h. Merci!\"\n}",
+          "options": {}
+        },
+        "name": "Send SMS Confirmation",
+        "type": "n8n-nodes-base.httpRequest",
+        "typeVersion": 4.1,
+        "position": [1450, 500],
+        "id": "sms-node"
+      },
+      {
+        "parameters": {
+          "url": "={{escalation_webhook}}",
+          "sendBody": true,
+          "bodyParametersJson": "={\n  \"text\": \"⚠️ *Manual Review Required*\\n\\n*Transaction ID:* {{$json.transaction_id}}\\n*Amount:* {{$json.amount}} DA\\n*Sender:* {{$json.sender_name}} ({{$json.sender_ccp}})\\n*Reference:* {{$json.reference}}\\n*Reason:* {{$json.is_suspicious ? 'Suspicious activity detected' : 'Amount exceeds auto-confirm threshold'}}\\n\\nPlease review and confirm manually.\"\n}",
+          "options": {}
+        },
+        "name": "Alert for Manual Review",
+        "type": "n8n-nodes-base.httpRequest",
+        "typeVersion": 4.1,
+        "position": [1050, 400],
+        "id": "manual-review-alert"
+      },
+      {
+        "parameters": {
+          "resource": "sheet",
+          "operation": "append",
+          "documentId": "={{google_sheet_orders}}",
+          "sheetName": "Payment Log",
+          "columns": {
+            "mappings": [
+              {
+                "column": "Timestamp",
+                "value": "={{$json.timestamp}}"
+              },
+              {
+                "column": "Transaction ID",
+                "value": "={{$json.transaction_id}}"
+              },
+              {
+                "column": "Amount",
+                "value": "={{$json.amount}}"
+              },
+              {
+                "column": "Sender",
+                "value": "={{$json.sender_name}}"
+              },
+              {
+                "column": "Order ID",
+                "value": "={{$json.order_id}}"
+              },
+              {
+                "column": "Status",
+                "value": "={{$json.can_auto_confirm ? 'Auto-Confirmed' : 'Pending Review'}}"
+              },
+              {
+                "column": "Suspicious",
+                "value": "={{$json.is_suspicious}}"
+              }
+            ]
+          }
+        },
+        "name": "Log All Transactions",
+        "type": "n8n-nodes-base.googleSheets",
+        "typeVersion": 4,
+        "position": [650, 500],
+        "id": "log-all",
+        "credentials": {
+          "googleSheetsOAuth2Api": {
+            "id": "google_sheets_user_{{user_id}}",
+            "name": "Google Sheets Account"
+          }
+        }
+      }
+    ],
+    "connections": {
+      "Check Every 5 Minutes": {
+        "main": [
+          [
+            {
+              "node": "Fetch Pending Transactions",
+              "type": "main",
+              "index": 0
+            }
+          ]
+        ]
+      },
+      "Fetch Pending Transactions": {
+        "main": [
+          [
+            {
+              "node": "Parse & Validate Transactions",
+              "type": "main",
+              "index": 0
+            }
+          ]
+        ]
+      },
+      "Parse & Validate Transactions": {
+        "main": [
+          [
+            {
+              "node": "Can Auto-Confirm?",
+              "type": "main",
+              "index": 0
+            },
+            {
+              "node": "Log All Transactions",
+              "type": "main",
+              "index": 0
+            }
+          ]
+        ]
+      },
+      "Can Auto-Confirm?": {
+        "main": [
+          [
+            {
+              "node": "Lookup Order Details",
+              "type": "main",
+              "index": 0
+            }
+          ],
+          [
+            {
+              "node": "Alert for Manual Review",
+              "type": "main",
+              "index": 0
+            }
+          ]
+        ]
+      },
+      "Lookup Order Details": {
+        "main": [
+          [
+            {
+              "node": "Amount Matches?",
+              "type": "main",
+              "index": 0
+            }
+          ]
+        ]
+      },
+      "Amount Matches?": {
+        "main": [
+          [
+            {
+              "node": "Confirm Payment in CCP",
+              "type": "main",
+              "index": 0
+            },
+            {
+              "node": "Update Order Status",
+              "type": "main",
+              "index": 0
+            },
+            {
+              "node": "Send Confirmation Email",
+              "type": "main",
+              "index": 0
+            },
+            {
+              "node": "Send SMS Confirmation",
+              "type": "main",
+              "index": 0
+            }
+          ]
+        ]
+      }
+    },
+    "settings": {
+      "executionOrder": "v1"
+    }
+  },
+  "estimated_cost_dzd": 12.5,
+  "avg_execution_time_seconds": 25
+}

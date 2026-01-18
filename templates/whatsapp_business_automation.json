@@ -1,0 +1,359 @@
+{
+  "id": "whatsapp_business_automation",
+  "name": "WhatsApp Business Auto-Responder",
+  "category": "customer_support",
+  "description": "AI-powered WhatsApp Business automation that handles common customer queries in Darja/French, qualifies leads, schedules appointments, and escalates complex issues to human agents with full conversation context",
+  "keywords": ["whatsapp", "customer support", "darja", "chatbot", "automation", "messaging"],
+  "required_inputs": [
+    {
+      "name": "whatsapp_business_id",
+      "type": "string",
+      "label": "WhatsApp Business Account ID",
+      "required": true
+    },
+    {
+      "name": "whatsapp_access_token",
+      "type": "string",
+      "label": "WhatsApp API Access Token",
+      "required": true
+    },
+    {
+      "name": "phone_number_id",
+      "type": "string",
+      "label": "WhatsApp Phone Number ID",
+      "required": true
+    }
+  ],
+  "optional_inputs": [
+    {
+      "name": "business_hours_start",
+      "type": "string",
+      "label": "Heure d'ouverture",
+      "default": "08:00"
+    },
+    {
+      "name": "business_hours_end",
+      "type": "string",
+      "label": "Heure de fermeture",
+      "default": "17:00"
+    },
+    {
+      "name": "ai_model",
+      "type": "select",
+      "label": "AI Model",
+      "options": [
+        {"value": "claude", "label": "Claude Sonnet (Cloud)"},
+        {"value": "local", "label": "Local LLM (Privacy-First)"}
+      ],
+      "default": "claude"
+    },
+    {
+      "name": "response_language",
+      "type": "select",
+      "label": "Langue de réponse",
+      "options": [
+        {"value": "auto", "label": "Auto-détection"},
+        {"value": "darja", "label": "Darja"},
+        {"value": "fr", "label": "Français"},
+        {"value": "ar", "label": "Arabe standard"}
+      ],
+      "default": "auto"
+    },
+    {
+      "name": "escalation_webhook",
+      "type": "string",
+      "label": "Webhook pour escalade (ex: Slack)",
+      "required": false
+    }
+  ],
+  "n8n_json": {
+    "name": "WhatsApp_Business_{{user_id}}",
+    "nodes": [
+      {
+        "parameters": {
+          "path": "whatsapp-webhook",
+          "options": {}
+        },
+        "name": "WhatsApp Webhook",
+        "type": "n8n-nodes-base.webhook",
+        "typeVersion": 1,
+        "position": [250, 300],
+        "id": "webhook-node"
+      },
+      {
+        "parameters": {
+          "functionCode": "// Extract message details\nconst webhookData = items[0].json;\nconst entry = webhookData.entry?.[0];\nconst changes = entry?.changes?.[0];\nconst message = changes?.value?.messages?.[0];\n\nif (!message) {\n  return [];\n}\n\nconst from = message.from;\nconst messageText = message.text?.body || '';\nconst messageType = message.type;\nconst timestamp = message.timestamp;\n\n// Detect business hours\nconst now = new Date();\nconst currentHour = now.getHours();\nconst startHour = parseInt('{{business_hours_start}}'.split(':')[0]);\nconst endHour = parseInt('{{business_hours_end}}'.split(':')[0]);\nconst isBusinessHours = currentHour >= startHour && currentHour < endHour;\n\n// Detect language (simple heuristic)\nconst hasArabicChars = /[\\u0600-\\u06FF]/.test(messageText);\nconst hasDarjaKeywords = /(راك|كيما|واش|بصح|هاك|شكون)/i.test(messageText);\nconst hasFrenchKeywords = /(bonjour|merci|prix|disponible|commander)/i.test(messageText);\n\nlet detectedLanguage = 'fr';\nif (hasArabicChars || hasDarjaKeywords) {\n  detectedLanguage = 'darja';\n} else if (hasFrenchKeywords) {\n  detectedLanguage = 'fr';\n}\n\n// Check for intent keywords\nconst isGreeting = /(salam|bonjour|hey|hello|السلام)/i.test(messageText);\nconst isPriceInquiry = /(prix|سعر|combien|ثمن)/i.test(messageText);\nconst isAvailability = /(disponible|متوفر|stock|راك عندك)/i.test(messageText);\nconst isComplaint = /(problème|مشكل|complaint|réclamation)/i.test(messageText);\n\nreturn [{\n  json: {\n    customer_phone: from,\n    message: messageText,\n    message_type: messageType,\n    timestamp: timestamp,\n    is_business_hours: isBusinessHours,\n    detected_language: detectedLanguage,\n    intent: {\n      is_greeting: isGreeting,\n      is_price_inquiry: isPriceInquiry,\n      is_availability: isAvailability,\n      is_complaint: isComplaint,\n      needs_escalation: isComplaint || messageText.length > 300\n    }\n  }\n}]);"
+        },
+        "name": "Parse Message & Detect Intent",
+        "type": "n8n-nodes-base.code",
+        "typeVersion": 2,
+        "position": [450, 300],
+        "id": "parse-node"
+      },
+      {
+        "parameters": {
+          "conditions": {
+            "boolean": [
+              {
+                "value1": "={{$json.is_business_hours}}",
+                "value2": true
+              }
+            ]
+          }
+        },
+        "name": "Check Business Hours",
+        "type": "n8n-nodes-base.if",
+        "typeVersion": 1,
+        "position": [650, 300],
+        "id": "hours-check"
+      },
+      {
+        "parameters": {
+          "url": "https://api.anthropic.com/v1/messages",
+          "authentication": "predefinedCredentialType",
+          "nodeCredentialType": "anthropicApi",
+          "sendHeaders": true,
+          "headerParameters": {
+            "parameters": [
+              {
+                "name": "x-api-key",
+                "value": "={{$credentials.apiKey}}"
+              },
+              {
+                "name": "anthropic-version",
+                "value": "2023-06-01"
+              }
+            ]
+          },
+          "sendBody": true,
+          "bodyParameters": {
+            "parameters": []
+          },
+          "options": {},
+          "bodyParametersJson": "={\n  \"model\": \"claude-sonnet-4-20250514\",\n  \"max_tokens\": 500,\n  \"system\": \"You are a helpful customer service agent for an Algerian business. Respond in {{$json.detected_language}} (Darja, French, or Arabic). Be warm, professional, and concise. Answer common questions about: product availability, pricing, delivery (Yalidine), payment methods (CCP, Baridimob), and business hours (Sunday-Thursday 8AM-5PM). If you cannot help, politely ask them to call during business hours.\",\n  \"messages\": [\n    {\n      \"role\": \"user\",\n      \"content\": \"{{$json.message}}\"\n    }\n  ]\n}"
+        },
+        "name": "AI Response Generation",
+        "type": "n8n-nodes-base.httpRequest",
+        "typeVersion": 4.1,
+        "position": [850, 250],
+        "id": "ai-node",
+        "credentials": {
+          "anthropicApi": {
+            "id": "anthropic_user_{{user_id}}",
+            "name": "Anthropic API"
+          }
+        }
+      },
+      {
+        "parameters": {
+          "functionCode": "const aiResponse = items[0].json;\nconst responseText = aiResponse.content?.[0]?.text || 'Désolé, je n\\'ai pas pu traiter votre demande.';\n\nreturn [{\n  json: {\n    ...items[0].json,\n    ai_response: responseText\n  }\n}];"
+        },
+        "name": "Extract AI Response",
+        "type": "n8n-nodes-base.code",
+        "typeVersion": 2,
+        "position": [1050, 250],
+        "id": "extract-node"
+      },
+      {
+        "parameters": {
+          "url": "=https://graph.facebook.com/v18.0/{{phone_number_id}}/messages",
+          "sendHeaders": true,
+          "headerParameters": {
+            "parameters": [
+              {
+                "name": "Authorization",
+                "value": "=Bearer {{whatsapp_access_token}}"
+              }
+            ]
+          },
+          "sendBody": true,
+          "bodyParametersJson": "={\n  \"messaging_product\": \"whatsapp\",\n  \"to\": \"{{$json.customer_phone}}\",\n  \"type\": \"text\",\n  \"text\": {\n    \"body\": \"{{$json.ai_response}}\"\n  }\n}",
+          "options": {}
+        },
+        "name": "Send WhatsApp Reply",
+        "type": "n8n-nodes-base.httpRequest",
+        "typeVersion": 4.1,
+        "position": [1250, 250],
+        "id": "send-reply"
+      },
+      {
+        "parameters": {
+          "content": "=🕒 En dehors des heures d'ouverture\\n\\nMerci de votre message. Notre équipe est disponible Dimanche-Jeudi de {{business_hours_start}} à {{business_hours_end}}.\\n\\nNous vous répondrons dès l'ouverture. Pour une urgence, appelez le 0XX XX XX XX.",
+          "options": {}
+        },
+        "name": "Auto-Reply After Hours",
+        "type": "n8n-nodes-base.respondToWebhook",
+        "typeVersion": 1,
+        "position": [850, 350],
+        "id": "after-hours"
+      },
+      {
+        "parameters": {
+          "conditions": {
+            "boolean": [
+              {
+                "value1": "={{$json.intent.needs_escalation}}",
+                "value2": true
+              }
+            ]
+          }
+        },
+        "name": "Check If Escalation Needed",
+        "type": "n8n-nodes-base.if",
+        "typeVersion": 1,
+        "position": [1050, 400],
+        "id": "escalation-check"
+      },
+      {
+        "parameters": {
+          "url": "={{escalation_webhook}}",
+          "sendBody": true,
+          "bodyParametersJson": "={\n  \"text\": \"⚠️ *Escalation Required*\\n\\n*Customer:* {{$json.customer_phone}}\\n*Message:* {{$json.message}}\\n*Detected Intent:* Complaint or complex query\\n*Language:* {{$json.detected_language}}\\n\\nPlease respond manually.\"\n}",
+          "options": {}
+        },
+        "name": "Notify Team (Slack/Email)",
+        "type": "n8n-nodes-base.httpRequest",
+        "typeVersion": 4.1,
+        "position": [1250, 450],
+        "id": "notify-team"
+      },
+      {
+        "parameters": {
+          "resource": "sheet",
+          "operation": "append",
+          "documentId": "={{google_sheet_id}}",
+          "sheetName": "Conversations",
+          "columns": {
+            "mappings": [
+              {
+                "column": "Timestamp",
+                "value": "={{$json.timestamp}}"
+              },
+              {
+                "column": "Customer Phone",
+                "value": "={{$json.customer_phone}}"
+              },
+              {
+                "column": "Message",
+                "value": "={{$json.message}}"
+              },
+              {
+                "column": "AI Response",
+                "value": "={{$json.ai_response}}"
+              },
+              {
+                "column": "Language",
+                "value": "={{$json.detected_language}}"
+              },
+              {
+                "column": "Escalated",
+                "value": "={{$json.intent.needs_escalation}}"
+              }
+            ]
+          }
+        },
+        "name": "Log Conversation",
+        "type": "n8n-nodes-base.googleSheets",
+        "typeVersion": 4,
+        "position": [1250, 350],
+        "id": "log-node",
+        "credentials": {
+          "googleSheetsOAuth2Api": {
+            "id": "google_sheets_user_{{user_id}}",
+            "name": "Google Sheets Account"
+          }
+        }
+      }
+    ],
+    "connections": {
+      "WhatsApp Webhook": {
+        "main": [
+          [
+            {
+              "node": "Parse Message & Detect Intent",
+              "type": "main",
+              "index": 0
+            }
+          ]
+        ]
+      },
+      "Parse Message & Detect Intent": {
+        "main": [
+          [
+            {
+              "node": "Check Business Hours",
+              "type": "main",
+              "index": 0
+            }
+          ]
+        ]
+      },
+      "Check Business Hours": {
+        "main": [
+          [
+            {
+              "node": "AI Response Generation",
+              "type": "main",
+              "index": 0
+            }
+          ],
+          [
+            {
+              "node": "Auto-Reply After Hours",
+              "type": "main",
+              "index": 0
+            }
+          ]
+        ]
+      },
+      "AI Response Generation": {
+        "main": [
+          [
+            {
+              "node": "Extract AI Response",
+              "type": "main",
+              "index": 0
+            }
+          ]
+        ]
+      },
+      "Extract AI Response": {
+        "main": [
+          [
+            {
+              "node": "Send WhatsApp Reply",
+              "type": "main",
+              "index": 0
+            },
+            {
+              "node": "Check If Escalation Needed",
+              "type": "main",
+              "index": 0
+            },
+            {
+              "node": "Log Conversation",
+              "type": "main",
+              "index": 0
+            }
+          ]
+        ]
+      },
+      "Check If Escalation Needed": {
+        "main": [
+          [
+            {
+              "node": "Notify Team (Slack/Email)",
+              "type": "main",
+              "index": 0
+            }
+          ]
+        ]
+      }
+    },
+    "settings": {
+      "executionOrder": "v1"
+    }
+  },
+  "estimated_cost_dzd": 18.0,
+  "avg_execution_time_seconds": 8
+}

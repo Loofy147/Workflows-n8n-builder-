@@ -24,6 +24,9 @@ To explore the platform in depth, please refer to the following structured guide
 | [**Agent Development Guide**](docs/AGENT_GUIDE.md) | How to build and coordinate specialized AI agents. |
 | [**API & Security Spec**](docs/API_AND_SECURITY.md) | Scopes, authentication, and hybrid crypto details. |
 | [**Infrastructure & Scale**](docs/INFRASTRUCTURE.md) | Docker orchestration, Event Workers, and LLM sidecars. |
+| [**Production Deployment**](docs/PRODUCTION_DEPLOYMENT.md) | Guide for deploying to production (SSL, monitoring, backups). |
+| [**Integration Guide**](docs/INTEGRATION_GUIDE.md) | Guide for integrating new templates and tests. |
+| [**Upgrade Summary**](docs/UPGRADE_SUMMARY.md) | Summary of latest platform upgrades and features. |
 | [**Agentic Contribution**](AGENTS.md) | Rules and context for AI agents working on this repo. |
 
 ---

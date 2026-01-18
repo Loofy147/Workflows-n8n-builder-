@@ -10,8 +10,11 @@ from typing import Dict, Any, Optional
 router = APIRouter()
 
 @router.get("/templates")
-async def get_templates(current_user: User = Security(get_current_user, scopes=["workflow:read"])):
-    matcher = TemplateMatcher()
+async def get_templates(
+    current_user: User = Security(get_current_user, scopes=["workflow:read"]),
+    db: Session = Depends(get_db)
+):
+    matcher = TemplateMatcher(db=db)
     return matcher.get_all_templates()
 
 @router.get("/{workflow_id}")
@@ -35,7 +38,7 @@ async def activate_workflow(
     from app.services.workflow_builder import WorkflowBuilder
     from app.services.template_matcher import TemplateMatcher
 
-    matcher = TemplateMatcher()
+    matcher = TemplateMatcher(db=db)
     template = matcher.get_template(request.template_id)
     if not template:
         raise HTTPException(status_code=404, detail="Template not found")

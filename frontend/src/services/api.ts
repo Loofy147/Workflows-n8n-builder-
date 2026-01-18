@@ -56,6 +56,13 @@ export const chatService = {
   },
 };
 
+export const executionService = {
+  getUserExecutions: async () => {
+    const response = await api.get('/executions/');
+    return response.data;
+  },
+};
+
 export const workflowService = {
   getTemplates: async () => {
     const response = await api.get('/workflows/templates');
@@ -66,6 +73,10 @@ export const workflowService = {
       template_id: templateId,
       inputs: inputs,
     });
+    return response.data;
+  },
+  getUserWorkflows: async () => {
+    const response = await api.get('/workflows/');
     return response.data;
   },
 };

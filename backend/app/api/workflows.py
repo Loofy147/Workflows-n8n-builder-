@@ -9,6 +9,15 @@ from typing import Dict, Any, Optional
 
 router = APIRouter()
 
+@router.get("/")
+async def get_user_workflows(
+    current_user: User = Security(get_current_user, scopes=["workflow:read"]),
+    db: Session = Depends(get_db)
+):
+    from app.models.workflow import UserWorkflow
+    workflows = db.query(UserWorkflow).filter(UserWorkflow.user_id == current_user.id).all()
+    return workflows
+
 @router.get("/templates")
 async def get_templates(
     current_user: User = Security(get_current_user, scopes=["workflow:read"]),

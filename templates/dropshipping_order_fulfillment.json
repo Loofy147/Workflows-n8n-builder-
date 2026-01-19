@@ -1,0 +1,125 @@
+{
+  "id": "dropshipping_fulfillment",
+  "name": "Multi-Vendor Dropshipping Hub",
+  "category": "logistics",
+  "description": "Unified order fulfillment system syncing Facebook/Instagram/Web orders with Yalidine and automated inventory checks",
+  "keywords": ["fulfillment", "dropshipping", "inventory", "yalidine", "sync"],
+  "required_inputs": [
+    {"name": "inventory_sheet_id", "type": "string", "label": "Google Sheet ID for Inventory", "required": true},
+    {"name": "yalidine_api_key", "type": "string", "label": "Yalidine API Key", "required": true},
+    {"name": "yalidine_center_id", "type": "string", "label": "Yalidine Center ID", "required": true}
+  ],
+  "optional_inputs": [
+    {"name": "auto_confirm_threshold", "type": "number", "label": "Auto-confirm threshold (DZD)", "default": 5000}
+  ],
+  "n8n_json": {
+    "nodes": [
+      {
+        "parameters": {
+          "httpMethod": "POST",
+          "path": "dropshipping-order",
+          "options": {}
+        },
+        "name": "New Order Webhook",
+        "type": "n8n-nodes-base.webhook",
+        "typeVersion": 1,
+        "position": [100, 300],
+        "id": "webhook-trigger"
+      },
+      {
+        "parameters": {
+          "resource": "sheet",
+          "operation": "lookupColumn",
+          "documentId": "={{inventory_sheet_id}}",
+          "sheetName": "Inventory",
+          "lookupColumn": "SKU",
+          "lookupValue": "={{$json.sku}}",
+          "returnColumn": "Stock,Price"
+        },
+        "name": "Check Stock",
+        "type": "n8n-nodes-base.googleSheets",
+        "typeVersion": 4,
+        "position": [300, 300],
+        "id": "check-stock"
+      },
+      {
+        "parameters": {
+          "conditions": {
+            "number": [
+              {
+                "value1": "={{$json.Stock}}",
+                "operation": "larger",
+                "value2": 0
+              }
+            ]
+          }
+        },
+        "name": "In Stock?",
+        "type": "n8n-nodes-base.if",
+        "typeVersion": 1,
+        "position": [500, 300],
+        "id": "in-stock-check"
+      },
+      {
+        "parameters": {
+          "method": "POST",
+          "url": "https://api.yalidine.com/v1/parcels",
+          "sendHeaders": true,
+          "headerParameters": {
+            "parameters": [
+              {
+                "name": "X-API-ID",
+                "value": "={{yalidine_api_key}}"
+              }
+            ]
+          },
+          "sendBody": true,
+          "bodyParametersJson": "={\n  \"from_wilaya_id\": {{yalidine_center_id}},\n  \"firstname\": \"{{$node['New Order Webhook'].json.customer_name}}\",\n  \"contact_phone\": \"{{$node['New Order Webhook'].json.phone}}\",\n  \"to_wilaya_id\": \"{{$node['New Order Webhook'].json.wilaya}}\"\n}",
+          "options": {}
+        },
+        "name": "Create Yalidine Shipment",
+        "type": "n8n-nodes-base.httpRequest",
+        "typeVersion": 4.1,
+        "position": [700, 200],
+        "id": "yalidine-node"
+      }
+    ],
+    "connections": {
+      "New Order Webhook": {
+        "main": [
+          [
+            {
+              "node": "Check Stock",
+              "type": "main",
+              "index": 0
+            }
+          ]
+        ]
+      },
+      "Check Stock": {
+        "main": [
+          [
+            {
+              "node": "In Stock?",
+              "type": "main",
+              "index": 0
+            }
+          ]
+        ]
+      },
+      "In Stock?": {
+        "main": [
+          [
+            {
+              "node": "Create Yalidine Shipment",
+              "type": "main",
+              "index": 0
+            }
+          ]
+        ]
+      }
+    }
+  },
+  "estimated_cost_dzd": 25.0,
+  "avg_execution_time_seconds": 40
+}

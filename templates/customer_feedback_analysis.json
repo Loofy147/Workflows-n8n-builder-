@@ -1,0 +1,108 @@
+{
+  "id": "customer_feedback_ai",
+  "name": "AI Feedback & Sentiment Loop",
+  "category": "marketing",
+  "description": "Automatically analyzes customer feedback from multiple channels using AI to detect sentiment and alert the team on negative reviews",
+  "keywords": ["sentiment", "feedback", "analysis", "ai", "reviews"],
+  "required_inputs": [
+    {"name": "slack_webhook", "type": "string", "label": "Slack Webhook URL for Alerts", "required": true}
+  ],
+  "optional_inputs": [
+    {"name": "negative_threshold", "type": "number", "label": "Negative sentiment threshold (0-1)", "default": 0.4}
+  ],
+  "n8n_json": {
+    "nodes": [
+      {
+        "parameters": {
+          "httpMethod": "POST",
+          "path": "customer-feedback",
+          "options": {}
+        },
+        "name": "Feedback Webhook",
+        "type": "n8n-nodes-base.webhook",
+        "typeVersion": 1,
+        "position": [100, 300],
+        "id": "feedback-trigger"
+      },
+      {
+        "parameters": {
+          "prompt": "Analyze the sentiment of this Algerian customer feedback (in Darja or French): \"{{$json.message}}\". Return JSON: {\"sentiment\": 0.0-1.0, \"summary\": \"string\", \"is_urgent\": boolean}",
+          "options": {}
+        },
+        "name": "AI Sentiment Analysis",
+        "type": "n8n-nodes-base.httpRequest",
+        "typeVersion": 4.1,
+        "position": [300, 300],
+        "id": "ai-analysis"
+      },
+      {
+        "parameters": {
+          "conditions": {
+            "boolean": [
+              {
+                "value1": "={{$json.is_urgent}}",
+                "value2": true
+              }
+            ]
+          }
+        },
+        "name": "Is Negative/Urgent?",
+        "type": "n8n-nodes-base.if",
+        "typeVersion": 1,
+        "position": [500, 300],
+        "id": "urgent-check"
+      },
+      {
+        "parameters": {
+          "method": "POST",
+          "url": "={{slack_webhook}}",
+          "sendBody": true,
+          "bodyParametersJson": "={\n  \"text\": \"⚠️ *Urgent Customer Feedback*\\n\\n*Sentiment:* {{$node['AI Sentiment Analysis'].json.sentiment}}\\n*Summary:* {{$node['AI Sentiment Analysis'].json.summary}}\\n*Original:* {{$node['Feedback Webhook'].json.message}}\"\n}",
+          "options": {}
+        },
+        "name": "Slack Alert",
+        "type": "n8n-nodes-base.httpRequest",
+        "typeVersion": 4.1,
+        "position": [700, 200],
+        "id": "slack-alert"
+      }
+    ],
+    "connections": {
+      "Feedback Webhook": {
+        "main": [
+          [
+            {
+              "node": "AI Sentiment Analysis",
+              "type": "main",
+              "index": 0
+            }
+          ]
+        ]
+      },
+      "AI Sentiment Analysis": {
+        "main": [
+          [
+            {
+              "node": "Is Negative/Urgent?",
+              "type": "main",
+              "index": 0
+            }
+          ]
+        ]
+      },
+      "Is Negative/Urgent?": {
+        "main": [
+          [
+            {
+              "node": "Slack Alert",
+              "type": "main",
+              "index": 0
+            }
+          ]
+        ]
+      }
+    }
+  },
+  "estimated_cost_dzd": 15.0,
+  "avg_execution_time_seconds": 30
+}

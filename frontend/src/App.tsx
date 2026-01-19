@@ -3,9 +3,10 @@ import ChatInterface from './components/ChatInterface';
 import WorkflowActivation from './components/WorkflowActivation';
 import WorkflowDashboard from './components/WorkflowDashboard';
 import ExecutionHistory from './components/ExecutionHistory';
-import { MessageSquare, Layout, List, Settings } from 'lucide-react';
+import SystemStatus from './components/SystemStatus';
+import { MessageSquare, Layout, List, Settings, Activity } from 'lucide-react';
 
-type View = 'chat' | 'activation' | 'dashboard' | 'history';
+type View = 'chat' | 'activation' | 'dashboard' | 'history' | 'status';
 
 function App() {
   const [view, setView] = useState<View>('chat');
@@ -50,6 +51,14 @@ function App() {
             <List size={20} />
             <span className="font-medium">Historique</span>
           </button>
+
+          <button
+            onClick={() => setView('status')}
+            className={`w-full flex items-center space-x-3 px-4 py-3 rounded-lg transition-colors ${view === 'status' ? 'bg-blue-600 text-white' : 'text-gray-400 hover:bg-gray-800'}`}
+          >
+            <Activity size={20} />
+            <span className="font-medium">État Système</span>
+          </button>
         </nav>
 
         <div className="p-4 border-t border-gray-800">
@@ -90,6 +99,8 @@ function App() {
           {view === 'dashboard' && <WorkflowDashboard />}
 
           {view === 'history' && <ExecutionHistory />}
+
+          {view === 'status' && <SystemStatus />}
         </div>
       </main>
     </div>

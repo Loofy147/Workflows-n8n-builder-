@@ -24,7 +24,7 @@ async def get_templates(
     db: Session = Depends(get_db)
 ):
     matcher = TemplateMatcher(db=db)
-    return matcher.get_all_templates()
+    return await matcher.get_all_templates_async()
 
 @router.get("/{workflow_id}")
 async def get_workflow(

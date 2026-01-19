@@ -1,0 +1,91 @@
+{
+  "id": "inventory_sync",
+  "name": "Cross-Platform Inventory Sync",
+  "category": "logistics",
+  "description": "Syncs stock levels across Ouedkniss, social media shops, and your internal database automatically when sales occur",
+  "keywords": ["inventory", "sync", "stock", "ouedkniss", "database"],
+  "required_inputs": [
+    {"name": "inventory_db_url", "type": "string", "label": "Internal Inventory DB Webhook URL", "required": true},
+    {"name": "ouedkniss_api_key", "type": "string", "label": "Ouedkniss API Key", "required": true}
+  ],
+  "optional_inputs": [],
+  "n8n_json": {
+    "nodes": [
+      {
+        "parameters": {
+          "httpMethod": "POST",
+          "path": "sale-recorded",
+          "options": {}
+        },
+        "name": "Sale Webhook",
+        "type": "n8n-nodes-base.webhook",
+        "typeVersion": 1,
+        "position": [100, 300],
+        "id": "sale-trigger"
+      },
+      {
+        "parameters": {
+          "method": "PATCH",
+          "url": "={{inventory_db_url}}",
+          "sendBody": true,
+          "bodyParametersJson": "={\n  \"sku\": \"{{$json.sku}}\",\n  \"adjustment\": -{{$json.quantity}}\n}",
+          "options": {}
+        },
+        "name": "Update Internal DB",
+        "type": "n8n-nodes-base.httpRequest",
+        "typeVersion": 4.1,
+        "position": [300, 300],
+        "id": "db-update"
+      },
+      {
+        "parameters": {
+          "method": "PUT",
+          "url": "https://api.ouedkniss.com/v1/store/products/inventory",
+          "sendHeaders": true,
+          "headerParameters": {
+            "parameters": [
+              {
+                "name": "Authorization",
+                "value": "Bearer {{ouedkniss_api_key}}"
+              }
+            ]
+          },
+          "sendBody": true,
+          "bodyParametersJson": "={\n  \"sku\": \"{{$node['Sale Webhook'].json.sku}}\",\n  \"stock\": \"{{$node['Update Internal DB'].json.new_stock}}\"\n}",
+          "options": {}
+        },
+        "name": "Update Ouedkniss",
+        "type": "n8n-nodes-base.httpRequest",
+        "typeVersion": 4.1,
+        "position": [500, 300],
+        "id": "ouedkniss-update"
+      }
+    ],
+    "connections": {
+      "Sale Webhook": {
+        "main": [
+          [
+            {
+              "node": "Update Internal DB",
+              "type": "main",
+              "index": 0
+            }
+          ]
+        ]
+      },
+      "Update Internal DB": {
+        "main": [
+          [
+            {
+              "node": "Update Ouedkniss",
+              "type": "main",
+              "index": 0
+            }
+          ]
+        ]
+      }
+    }
+  },
+  "estimated_cost_dzd": 12.0,
+  "avg_execution_time_seconds": 20
+}

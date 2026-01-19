@@ -4,8 +4,11 @@ Coordinates multi-agent collaboration and state management for complex workflows
 Implements 2026 best practices for Agentic AI.
 """
 import logging
+import json
 from typing import Dict, List, Any, Optional
 from dataclasses import dataclass, field
+from anthropic import AsyncAnthropic
+from app.config import settings
 from app.services.ai_agent import AIWorkflowAgent
 
 logger = logging.getLogger(__name__)
@@ -66,13 +69,46 @@ class AgentOrchestrator:
 
     async def _route_request(self, state: AgentState) -> str:
         """
-        Determines which specialized agent should handle the request.
+        Determines which specialized agent should handle the request using LLM.
         """
-        query_lower = state.query.lower()
-        if any(w in query_lower for w in ["ouedkniss", "leads", "sales", "client"]):
-            return "sales"
-        if any(w in query_lower for w in ["delivery", "yalidine", "ship", "transport"]):
-            return "logistics"
-        if any(w in query_lower for w in ["payment", "baridimob", "ccp", "invoice"]):
-            return "finance"
-        return "general"
+        try:
+            client = AsyncAnthropic(api_key=settings.ANTHROPIC_API_KEY)
+
+            prompt = f"""You are a routing agent for an Algerian business automation platform.
+Analyze the user query and route it to the best specialist agent.
+
+USER QUERY: "{state.query}"
+
+AVAILABLE AGENTS:
+- "sales": Experts in Ouedkniss scraping, lead generation, CRM, and social media sales.
+- "logistics": Experts in Yalidine shipping, delivery tracking, and inventory sync.
+- "finance": Experts in CCP payments, BaridiMob verification, and invoicing.
+- "general": For greetings or non-specific automation requests.
+
+Response format: Return ONLY the agent name in lowercase.
+"""
+            response = await client.messages.create(
+                model="claude-3-haiku-20240307",
+                max_tokens=10,
+                messages=[{"role": "user", "content": prompt}]
+            )
+
+            route = response.content[0].text.strip().lower()
+            if route in self.agents:
+                return route
+
+            raise ValueError(f"Invalid route returned: {route}")
+
+        except Exception as e:
+            logger.error(f"Routing error: {e}. Using keyword fallback.")
+
+            # Intelligent Fallback: Keyword-based logic
+            query_lower = state.query.lower()
+            if any(w in query_lower for w in ["ouedkniss", "leads", "sales", "client"]):
+                return "sales"
+            if any(w in query_lower for w in ["delivery", "yalidine", "ship", "transport"]):
+                return "logistics"
+            if any(w in query_lower for w in ["payment", "baridimob", "ccp", "invoice"]):
+                return "finance"
+
+            return "general"

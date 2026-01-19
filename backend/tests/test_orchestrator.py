@@ -1,11 +1,26 @@
 import pytest
 import os
-from unittest.mock import MagicMock, patch
+from unittest.mock import MagicMock, patch, AsyncMock
 from app.services.orchestrator import AgentOrchestrator
 
 @pytest.mark.asyncio
-async def test_orchestrator_routing():
+@patch("app.services.orchestrator.AsyncAnthropic")
+async def test_orchestrator_routing(mock_anthropic):
     # Mock LLM response for intent analysis
+    mock_client = AsyncMock()
+
+    def create_mock_response(text):
+        res = MagicMock()
+        res.content = [MagicMock(text=text)]
+        return res
+
+    mock_client.messages.create = AsyncMock(side_effect=[
+        create_mock_response("sales"),
+        create_mock_response("logistics"),
+        create_mock_response("finance")
+    ])
+    mock_anthropic.return_value = mock_client
+
     orchestrator = AgentOrchestrator()
 
     # Test Sales Routing
@@ -21,8 +36,16 @@ async def test_orchestrator_routing():
     assert route == "finance"
 
 @pytest.mark.asyncio
+@patch("app.services.orchestrator.AsyncAnthropic")
 @patch("app.services.ai_agent.AIWorkflowAgent.process_message")
-async def test_orchestrator_run(mock_process):
+async def test_orchestrator_run(mock_process, mock_anthropic):
+    # Mock routing
+    mock_client = AsyncMock()
+    mock_response = MagicMock()
+    mock_response.content = [MagicMock(text="sales")]
+    mock_client.messages.create = AsyncMock(return_value=mock_response)
+    mock_anthropic.return_value = mock_client
+
     mock_process.return_value = {
         "type": "message",
         "message": "Sales agent response",
